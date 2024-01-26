@@ -4,8 +4,6 @@
 #include "framework.h"
 #include "FanControl++.h"
 
-#include "get_data.h"
-#include "utils.h"
 #define MAX_LOADSTRING 100
 
 // Global Variables:
@@ -13,9 +11,12 @@ HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 
+// dirty trick
+bool thread_term = false;
+
 // Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
-BOOL                InitInstance(HINSTANCE, int);
+HWND                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
@@ -55,22 +56,51 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 //        In this function, we save the instance handle in a global variable and
 //        create and display the main program window.
 //
-BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
+
+HWND InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
 	hInst = hInstance; // Store instance handle in our global variable
 	DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
 	HWND hWnd = CreateWindowW(szWindowClass, szTitle, dwStyle,
 		CW_USEDEFAULT, 0, 500, 500, nullptr, nullptr, hInstance, nullptr);
 	_dInfo(L"Window spawned!");
+	
 	if (!hWnd)
 	{
-		return FALSE;
+		return NULL;
 	}
 
 	ShowWindow(hWnd, nCmdShow);
 	UpdateWindow(hWnd);
 
-	return TRUE;
+	return hWnd;
+}
+
+static BOOL Cleanup(HWND& hWnd, NOTIFYICONDATAW& nid) {
+	return Shell_NotifyIconW(NIM_DELETE, &nid);
+}
+
+static BOOL MainThread(HWND hWnd) noexcept(false) {
+	AsusDLL asus_control;
+	NOTIFYICONDATAW nid = {};
+	InitTray(hWnd, nid);
+
+	_dInfo(L"Thread called!");
+	while (!thread_term) {
+		BOOL DEBUG = FALSE;
+		if (!DEBUG) {
+			int temp = asus_control.get_thermal_cpu();
+			_dInfo(_ts(L"[Thread] Temp: ") + _ts(temp));
+			int perc = calc_fan_percent(temp);
+			asus_control.set_fan_speed(perc);
+			_dInfo(_ts(L"[Thread] Percent: ") + _ts(asus_control.current_fan_percent));
+		}
+
+		UpdateTray(hWnd, nid, asus_control);
+		Sleep(UPDATE_INTERVAL);
+	}
+
+	return Cleanup(hWnd, nid);
 }
 
 //
@@ -94,7 +124,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		switch (wmId)
 		{
 		case IDM_ABOUT:
-			DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+			//DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
 			break;
 		case IDM_EXIT:
 			DestroyWindow(hWnd);
@@ -114,7 +144,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	}
 	break;
 	case WM_DESTROY:
-
 		PostQuitMessage(0);
 		break;
 	default:
@@ -152,7 +181,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	UNREFERENCED_PARAMETER(lpCmdLine);
 
 	// TODO: Place code here.
-	AsusDLL asus_control;
 	
 	// Initialize global strings
 	LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -160,7 +188,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	MyRegisterClass(hInstance);
 
 	// Perform application initialization:
-	if (!InitInstance(hInstance, nCmdShow))
+	HWND hWnd = InitInstance(hInstance, nCmdShow);
+	if (hWnd == NULL)
 	{
 		return FALSE;
 	}
@@ -168,6 +197,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_FANCONTROL));
 
 	MSG msg;
+
+	std::thread main_thread(MainThread, hWnd);
 
 	// Main message loop:
 	while (GetMessage(&msg, nullptr, 0, 0))
@@ -179,5 +210,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		}
 	}
 
+	// kinda dirty trick, investigate later
+	thread_term = true;
+	main_thread.join();
+	
 	return (int)msg.wParam;
 }
