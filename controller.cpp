@@ -1,11 +1,11 @@
-#include "get_data.h"
+#include "controller.h"
 
 bool AsusDLL::failed(const std::wstring reason = _ts(L"Failed"), bool shown = true) {
-	if(shown) _dErr(reason);
+	if (shown) _dErr(reason);
 	return false;
 }
 
-bool AsusDLL::success(const std::wstring reason = _ts(L"Success"), bool shown = true)
+bool AsusDLL::success(const std::wstring reason = _ts(L"Success"), bool shown = false)
 {
 	if (shown) _dInfo(reason);
 	return true;
@@ -53,7 +53,8 @@ bool AsusDLL::set_fan_test_mode(char mode)
 	typedef void (*FanTestMode)(char value);
 	FanTestMode set_fan_test_mode = (FanTestMode)GetProcAddress(asus_dll, "HealthyTable_SetFanTestMode");
 	set_fan_test_mode(mode);
-	return success(L"", false);
+	current_fan_test_mode = mode;
+	return success(_ts(L"[ASUS Service] Fan test mode changed to ") + _ts(mode), true);
 }
 
 bool AsusDLL::set_fan_pwm_duty(byte value)
@@ -68,52 +69,52 @@ bool AsusDLL::set_fan_pwm_duty(byte value)
 bool AsusDLL::set_fan_speed_idx(byte value, byte fanIdx = 0)
 {
 	if (!init_status) return failed(_ts(L"Set fan speed #") + _ts(fanIdx) + _ts(L" failed"));
+	if (current_fan_test_mode == 0) {
+		if (value > 1) AsusDLL::set_fan_test_mode(0x01);
+		else return success(_ts(L"Fan test mode is not enabled, skip setting fan speed #") + _ts(fanIdx), false);
+	}
 	typedef void (*FanIdx)(byte fanIndex);
 	FanIdx set_fan_idx = (FanIdx)GetProcAddress(asus_dll, "HealthyTable_SetFanIndex");
 	set_fan_idx(fanIdx);
-	AsusDLL::set_fan_test_mode(char(value > 0 ? 0x01 : 0x00));
 	AsusDLL::set_fan_pwm_duty(value);
-	return success(_ts(L"Set fan speed #") + _ts(fanIdx) + _ts(L" to ") + _ts(value));
-}
-
-bool AsusDLL::set_fan_speed_idx(int percent, byte fanIdx = 0)
-{
-	byte value = (byte)(percent / 100.0f * 255);
-	return AsusDLL::set_fan_speed_idx(value, fanIdx);
-}
-
-bool AsusDLL::set_fan_speed(byte value)
-{
-	if (!init_status) return failed();
-	int fan_cnt = AsusDLL::get_fan_count();
-	for (byte fanIdx = 0; fanIdx < fan_cnt; ++fanIdx) {
-		if (!AsusDLL::set_fan_speed_idx(value, fanIdx)) return failed();
-		Sleep(200);
-	}
-	return success();
+	return success(_ts(L"Set fan speed #") + _ts(fanIdx) + _ts(L" to ") + _ts(value), false);
 }
 
 bool AsusDLL::set_fan_speed(int percent)
 {
 	if (!init_status) return failed();
-	byte value = (byte)(percent / 100.0f * 255);
 
 	// wont change if the delta is too small
-	if (abs(int(AsusDLL::current_fan_percent - percent)) <= 1) return success();
+	if (abs(AsusDLL::current_fan_percent - percent) <= 1) return success();
+
+	// set to 0 if the percent is too small
+	if (percent < 20) percent = 0;
+
+	inipp::Ini<wchar_t> settings;
+	read_settings(settings);
+	int update_interval = 2000;
+	inipp::extract(settings.sections[L"General"][L"UpdateInterval"], update_interval);
+	settings.clear();
 
 	// soften the curve e.g. not change the speed too fast
-	if (abs(int(AsusDLL::current_fan_percent - percent)) >= 12) {
-		if (AsusDLL::current_fan_percent < percent) AsusDLL::current_fan_percent += 12;
-		else AsusDLL::current_fan_percent -= 12;
+	float delta = 5.0f * update_interval / 1000; // not faster than 5% per second
+
+	if (abs(AsusDLL::current_fan_percent - percent) >= delta) { // if the delta is big enough, change it
+		if (AsusDLL::current_fan_percent < percent) AsusDLL::current_fan_percent += delta;
+		else AsusDLL::current_fan_percent -= delta;
+	}
+	else { // if the delta is too small, just set it to the target
+		AsusDLL::current_fan_percent = percent;
 	}
 
-	AsusDLL::current_fan_percent = percent;
+	byte value = max((byte)1, (byte)(AsusDLL::current_fan_percent / 100.0f * 255));
+
 	int fan_cnt = AsusDLL::get_fan_count();
 	for (byte fanIdx = 0; fanIdx < fan_cnt; ++fanIdx) {
 		if (!AsusDLL::set_fan_speed_idx(value, fanIdx)) return failed();
-		Sleep(200);
+		Sleep(100);
 	}
-	return success();
+	return success(_ts(L"Set fan speed to ") + _ts(value), true);
 }
 
 int AsusDLL::get_fan_speed_idx(byte fanIdx = 0)
@@ -130,47 +131,56 @@ int AsusDLL::get_fan_speed_idx(byte fanIdx = 0)
 	return (int)fan_speed();
 }
 
+static bool update_needed(ULONGLONG& last_update, SYSTEMTIME& st) {
+	GetSystemTime(&st);
+
+	inipp::Ini<wchar_t> settings;
+	read_settings(settings);
+	int update_interval = 2000;
+	inipp::extract(settings.sections[L"General"][L"UpdateInterval"], update_interval);
+	settings.clear();
+
+	return (convert_to_ull(st) - last_update > update_interval);
+}
+
 std::vector<int> AsusDLL::get_fan_speed()
 {
+	SYSTEMTIME st;
+	if (!update_needed(last_update_fan_speed, st)) return fan_speed_list;
+
 	int fan_cnt = AsusDLL::get_fan_count();
-	std::vector<int> fan_speed_list;
+	fan_speed_list.clear();
 	for (byte fanIdx = 0; fanIdx < fan_cnt; ++fanIdx) {
 		int val = AsusDLL::get_fan_speed_idx(fanIdx);
 		if (val == -1) break;
 		fan_speed_list.push_back(val);
-		Sleep(200);
+		Sleep(100);
 	}
+
+	last_update_thermal = convert_to_ull(st);
 	return fan_speed_list;
 }
 
-ULONG AsusDLL::get_thermal_cpu()
+ULONG AsusDLL::get_thermal()
 {
 	SYSTEMTIME st;
-	GetSystemTime(&st);
-	if(convert_to_ull(st) - last_update_thermal_cpu < UPDATE_INTERVAL) return current_thermal_cpu;
+	if (!update_needed(last_update_thermal, st)) return current_combined_thermal;
 
 	if (!init_status) {
-		_dErr(L"Get thermal CPU failed");
+		_dErr(L"Get thermal failed");
 		return -1;
 	}
 
 	typedef int (*TherCPU)();
 	TherCPU thermal_cpu = (TherCPU)GetProcAddress(asus_dll, "Thermal_Read_Cpu_Temperature");
-	current_thermal_cpu = (ULONG)thermal_cpu();
-	last_update_thermal_cpu = convert_to_ull(st);
-
-	return current_thermal_cpu;
-}
-
-ULONG AsusDLL::get_thermal_gpu()
-{
-	if (!init_status) {
-		_dErr(L"Get thermal GPU failed");
-		return -1;
-	}
 	typedef int (*TherGPU)();
 	TherGPU thermal_gpu = (TherGPU)GetProcAddress(asus_dll, "Thermal_Read_GpuTS1L_Temperature");
-	return (ULONG)thermal_gpu();
+	current_cpu_thermal = thermal_cpu();
+	current_gpu_thermal = thermal_gpu();
+	current_combined_thermal = max(current_cpu_thermal, current_gpu_thermal);
+	last_update_thermal = convert_to_ull(st);
+
+	return current_combined_thermal;
 }
 
 PWRStatus AsusDLL::get_power_mode()
@@ -179,7 +189,7 @@ PWRStatus AsusDLL::get_power_mode()
 		_dErr(L"Get power mode failed");
 		return Error;
 	}
-	typedef byte (*PowerMode)();
+	typedef byte(*PowerMode)();
 	PowerMode power_mode = (PowerMode)GetProcAddress(asus_dll, "Power_Read_ACDCMode");
 	return (PWRStatus)power_mode();
 }

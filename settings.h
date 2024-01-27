@@ -1,3 +1,7 @@
 #pragma once
-#define UPDATE_INTERVAL 2500
-#define TRAY_ICON_SIZE 64
+#include "utils.h"
+#include <fstream>
+#include <filesystem>
+
+BOOL write_settings(inipp::Ini<wchar_t>& settings);
+BOOL read_settings(inipp::Ini<wchar_t>& settings);

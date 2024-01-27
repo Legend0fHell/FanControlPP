@@ -1,42 +1,27 @@
 #include "tray.h"
 
-
 HDC _hdc, _hdc_mask;
 HBITMAP _hbitmap, _hbitmap_mask;
 HFONT _hfont;
 HICON _hicon;
 RECT _icon_size;
 
-BOOL InitTray(HWND& hWnd, NOTIFYICONDATAW& nid) {
-    // NotifyIconData Icon Initialization
-	nid.cbSize = sizeof(nid);
-	nid.hWnd = hWnd;
-	nid.uFlags = NIF_ICON | NIF_TIP;
-	nid.hIcon = (HICON)LoadImage(NULL, L"small.ico", IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_SHARED | LR_LOADTRANSPARENT);
-	std::wstring tool_tip = _ts(L"Initializing...");
-	wmemcpy_s(nid.szTip, 128, tool_tip.c_str(), tool_tip.length());
-    TrayIconInit();
-
-    //nid ucallbackmessage
-    nid.uCallbackMessage = WM_USER_SHELLICON;
-
-
-	return Shell_NotifyIconW(NIM_ADD, &nid);
-}
+int tray_icon_number = 0;
+COLORREF tray_icon_clr;
 
 // get dpi value using dpix and dpiy
-LONG _r_dc_getdpivalue(HDC hdc, RECT* rect) {
+LONG GetDPIValue(HDC hdc, RECT* rect) {
 	LONG dpi = 0;
 
 	if (hdc == NULL)
 		hdc = GetDC(NULL);
 
-    if (hdc != NULL)
-    {
+	if (hdc != NULL)
+	{
 		dpi = GetDeviceCaps(hdc, LOGPIXELSX);
 
-        if (rect != NULL)
-        {
+		if (rect != NULL)
+		{
 			rect->left = MulDiv(rect->left, dpi, 96);
 			rect->top = MulDiv(rect->top, dpi, 96);
 			rect->right = MulDiv(rect->right, dpi, 96);
@@ -50,171 +35,224 @@ LONG _r_dc_getdpivalue(HDC hdc, RECT* rect) {
 }
 
 LONG GetTaskbarDPI() {
-    APPBARDATA taskbar_rect = { 0 };
+	APPBARDATA taskbar_rect = { 0 };
 
-    taskbar_rect.cbSize = sizeof(taskbar_rect);
+	taskbar_rect.cbSize = sizeof(taskbar_rect);
 
-    if (SHAppBarMessage(ABM_GETTASKBARPOS, &taskbar_rect))
-        return _r_dc_getdpivalue(NULL, &taskbar_rect.rc);
+	if (SHAppBarMessage(ABM_GETTASKBARPOS, &taskbar_rect))
+		return GetDPIValue(NULL, &taskbar_rect.rc);
 
-    return _r_dc_getdpivalue(NULL, NULL);
+	return GetDPIValue(NULL, NULL);
 }
 
 void FontInit(PLOGFONT logfont) {
-    RtlZeroMemory(logfont, sizeof(LOGFONT));
-    wcscpy_s(logfont->lfFaceName, L"Digital-7 Mono");
-    logfont->lfHeight = -(LONG)((TRAY_ICON_SIZE*5/6) * GetTaskbarDPI())/96;
-    logfont->lfWeight = FW_BOLD;
-    logfont->lfCharSet = DEFAULT_CHARSET;
-    logfont->lfQuality = CLEARTYPE_QUALITY;
+	RtlZeroMemory(logfont, sizeof(LOGFONT));
+
+	inipp::Ini<wchar_t> settings;
+	read_settings(settings);
+	int tray_icon_size = 0;
+	std::wstring font_face_name = L"Arial";
+	inipp::extract(settings.sections[L"General"][L"TrayIconSize"], tray_icon_size);
+	inipp::extract(settings.sections[L"General"][L"TrayIconFont"], font_face_name);
+	settings.clear();
+
+	wcscpy_s(logfont->lfFaceName, font_face_name.c_str());
+	logfont->lfHeight = -(LONG)((tray_icon_size * 4 / 5) * GetTaskbarDPI()) / 96;
+	logfont->lfWeight = FW_BOLD;
+	logfont->lfCharSet = DEFAULT_CHARSET;
+	logfont->lfQuality = CLEARTYPE_QUALITY;
 }
 
 HBITMAP CreateAlphaBitmap(HDC hdc, LONG width, LONG height, _Out_ _When_(return != NULL, _Notnull_) void** bits) {
-    BITMAPINFO bmi = { 0 };
-    HBITMAP hbitmap;
-    HDC new_hdc = NULL;
-    if (!hdc)
-    {
-        new_hdc = GetDC(NULL);
-        if (!new_hdc)
-        {
-            *bits = NULL;
-            return NULL;
-        }
-        hdc = new_hdc;
-    }
+	BITMAPINFO bmi = { 0 };
+	HBITMAP hbitmap;
+	HDC new_hdc = NULL;
+	if (!hdc)
+	{
+		new_hdc = GetDC(NULL);
+		if (!new_hdc)
+		{
+			*bits = NULL;
+			return NULL;
+		}
+		hdc = new_hdc;
+	}
 
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = width;
-    bmi.bmiHeader.biHeight = -height;
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
-    hbitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, bits, NULL, 0);
-    if (new_hdc)
-        ReleaseDC(NULL, new_hdc);
+	bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+	bmi.bmiHeader.biWidth = width;
+	bmi.bmiHeader.biHeight = -height;
+	bmi.bmiHeader.biPlanes = 1;
+	bmi.bmiHeader.biBitCount = 32;
+	bmi.bmiHeader.biCompression = BI_RGB;
+	hbitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, bits, NULL, 0);
+	if (new_hdc)
+		ReleaseDC(NULL, new_hdc);
 
-    return hbitmap;
+	return hbitmap;
 }
 
 BOOL TrayIconInit() {
-    LOGFONT logfont;
-    PVOID bits;
+	LOGFONT logfont;
+	PVOID bits;
 
-    HDC hdcOri;
-    FontInit(&logfont);
-    _hfont = CreateFontIndirectW(&logfont);
+	HDC hdcOri;
+	FontInit(&logfont);
+	_hfont = CreateFontIndirectW(&logfont);
 
-    SetRect(&_icon_size, 0, 0, TRAY_ICON_SIZE, TRAY_ICON_SIZE);
-    hdcOri = GetDC(NULL);
+	inipp::Ini<wchar_t> settings;
+	read_settings(settings);
+	int tray_icon_size = 0;
+	inipp::extract(settings.sections[L"General"][L"TrayIconSize"], tray_icon_size);
+	settings.clear();
 
-    if (!hdcOri) {
-        _dErr(L"GetDC failed!");
-        return FALSE;
-    }
+	SetRect(&_icon_size, 0, 0, tray_icon_size, tray_icon_size);
+	hdcOri = GetDC(NULL);
 
-    _hdc = CreateCompatibleDC(hdcOri);
-    _hdc_mask = CreateCompatibleDC(hdcOri);
+	if (!hdcOri) {
+		_dErr(L"GetDC failed!");
+		return FALSE;
+	}
 
-    // Create bitmap
-    _hbitmap = CreateAlphaBitmap(_hdc, TRAY_ICON_SIZE, TRAY_ICON_SIZE, &bits);
-    _hbitmap_mask = CreateBitmap(TRAY_ICON_SIZE, TRAY_ICON_SIZE, 1, 1, NULL);
-    ReleaseDC(NULL, hdcOri);
-    return TRUE;
+	_hdc = CreateCompatibleDC(hdcOri);
+	_hdc_mask = CreateCompatibleDC(hdcOri);
+
+	// Create bitmap
+	_hbitmap = CreateAlphaBitmap(_hdc, tray_icon_size, tray_icon_size, &bits);
+	_hbitmap_mask = CreateBitmap(tray_icon_size, tray_icon_size, 1, 1, NULL);
+	ReleaseDC(NULL, hdcOri);
+	return TRUE;
 }
 
 // draw background on hdc
-void DrawBackground(HDC &hdc, COLORREF bg_clr, COLORREF pen_clr, COLORREF brush_clr) {
-    HGDIOBJ prev_brush;
-    HGDIOBJ prev_pen;
-    COLORREF prev_clr;
+void DrawBackground(HDC & hdc, COLORREF bg_clr, COLORREF pen_clr, COLORREF brush_clr) {
+	HGDIOBJ prev_brush;
+	HGDIOBJ prev_pen;
+	COLORREF prev_clr;
 
-    prev_brush = SelectObject(hdc, GetStockObject(DC_BRUSH));
-    prev_pen = SelectObject(hdc, GetStockObject(DC_PEN));
+	prev_brush = SelectObject(hdc, GetStockObject(DC_BRUSH));
+	prev_pen = SelectObject(hdc, GetStockObject(DC_PEN));
 
-    prev_clr = SetBkColor(hdc, bg_clr);
+	prev_clr = SetBkColor(hdc, bg_clr);
 
-    SetDCPenColor(hdc, pen_clr);
-    SetDCBrushColor(hdc, brush_clr);
+	SetDCPenColor(hdc, pen_clr);
+	SetDCBrushColor(hdc, brush_clr);
 
 	FillRect(hdc, &_icon_size, (HBRUSH)GetStockObject(bg_clr));
-    SelectObject(hdc, prev_brush);
-    SelectObject(hdc, prev_pen);
-    SetBkColor(hdc, prev_clr);
+	SelectObject(hdc, prev_brush);
+	SelectObject(hdc, prev_pen);
+	SetBkColor(hdc, prev_clr);
 }
 
-void UpdateText(HDC &hdc, wchar_t* szText, int text_length, PRECT rect, COLORREF clr) {
-    COLORREF prev_clr;
-    ULONG flags;
+void UpdateText(HDC & hdc, wchar_t* szText, int text_length, PRECT rect, COLORREF clr) {
+	COLORREF prev_clr;
+	ULONG flags;
 
-    prev_clr = SetTextColor(hdc, clr);
+	prev_clr = SetTextColor(hdc, clr);
 
-    flags = DT_BOTTOM | DT_CENTER | DT_SINGLELINE | DT_NOCLIP | DT_NOPREFIX;
+	flags = DT_BOTTOM | DT_CENTER | DT_SINGLELINE | DT_NOCLIP | DT_NOPREFIX;
 
-    DrawTextExW(hdc, szText, text_length, rect, flags, NULL);
+	DrawTextExW(hdc, szText, text_length, rect, flags, NULL);
 
-    SetTextColor(hdc, prev_clr);
+	SetTextColor(hdc, prev_clr);
 }
 
-BOOL UpdateTrayIconNumber(HWND& hWnd, NOTIFYICONDATAW& nid, AsusDLL& asus_control) {
-    wchar_t* szText = _wcsdup(_ts(asus_control.get_thermal_cpu()).c_str());
-    _dInfo(_ts(L"[UpdateTrayIconNumber] Thermal Updating Icon: ") + _ts(asus_control.get_thermal_cpu()));
+BOOL UpdateTrayIconNumber(HWND & hWnd, NOTIFYICONDATAW & nid, AsusDLL & asus_control, COLORREF & clr) {
+	// if the number is the same, no need to update
+	if (tray_icon_number == asus_control.get_thermal() && tray_icon_clr == clr) {
+		return TRUE;
+	}
 
-    HGDIOBJ prev_bmp, prev_font;
-    ICONINFO iconInfo;
-    int prev_mode;
+	tray_icon_number = asus_control.get_thermal();
+	tray_icon_clr = clr;
 
-    prev_bmp = SelectObject(_hdc, _hbitmap);
-    prev_font = SelectObject(_hdc, _hfont);
-    prev_mode = SetBkMode(_hdc, TRANSPARENT);
+	wchar_t* szText = _wcsdup(_ts(tray_icon_number).c_str());
+	_dInfo(_ts(L"[UpdateTrayIconNumber] Thermal Updating Icon: ") + _ts(tray_icon_number));
 
-    DrawBackground(_hdc, TRANSPARENT, TRANSPARENT, TRANSPARENT);
+	HGDIOBJ prev_bmp, prev_font;
+	ICONINFO iconInfo{};
+	int prev_mode;
 
-    UpdateText(_hdc, szText, lstrlen(szText), &_icon_size, RGB(255, 255 - max(0, (long(asus_control.get_thermal_cpu()) - 60) * 6), 255 - max(0, (long(asus_control.get_thermal_cpu()) - 60) * 6)));
+	prev_bmp = SelectObject(_hdc, _hbitmap);
+	prev_font = SelectObject(_hdc, _hfont);
+	prev_mode = SetBkMode(_hdc, TRANSPARENT);
 
-    SetBkMode(_hdc, prev_mode);
-    SelectObject(_hdc, prev_font);
-    SelectObject(_hdc, prev_bmp);
+	DrawBackground(_hdc, TRANSPARENT, TRANSPARENT, TRANSPARENT);
 
-    // Draw mask
-    prev_bmp = SelectObject(_hdc_mask, _hbitmap_mask);
-    prev_font = SelectObject(_hdc_mask, _hfont);
-    prev_mode = SetBkMode(_hdc_mask, TRANSPARENT);
+	UpdateText(_hdc, szText, lstrlen(szText), &_icon_size, clr);
 
-    DrawBackground(_hdc_mask, RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255));
+	SetBkMode(_hdc, prev_mode);
+	SelectObject(_hdc, prev_font);
+	SelectObject(_hdc, prev_bmp);
 
-    UpdateText(_hdc_mask, szText, lstrlen(szText), &_icon_size, RGB(0, 0, 0));
+	// Draw mask
+	prev_bmp = SelectObject(_hdc_mask, _hbitmap_mask);
+	prev_font = SelectObject(_hdc_mask, _hfont);
+	prev_mode = SetBkMode(_hdc_mask, TRANSPARENT);
 
-    SetBkMode(_hdc_mask, prev_mode);
+	DrawBackground(_hdc_mask, RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255));
 
-    SelectObject(_hdc_mask, prev_bmp);
-    SelectObject(_hdc_mask, prev_font);
+	UpdateText(_hdc_mask, szText, lstrlen(szText), &_icon_size, RGB(0, 0, 0));
 
-    iconInfo.fIcon = TRUE;
-    iconInfo.hbmColor = _hbitmap;
-    iconInfo.hbmMask = _hbitmap_mask;
+	SetBkMode(_hdc_mask, prev_mode);
 
-    HICON hicon_new = CreateIconIndirect(&iconInfo);
+	SelectObject(_hdc_mask, prev_bmp);
+	SelectObject(_hdc_mask, prev_font);
 
-    if (_hicon)
-        DestroyIcon(_hicon);
+	iconInfo.fIcon = TRUE;
+	iconInfo.hbmColor = _hbitmap;
+	iconInfo.hbmMask = _hbitmap_mask;
 
-    _hicon = hicon_new;
+	HICON hicon_new = CreateIconIndirect(&iconInfo);
 
-    free(szText);
+	if (_hicon)
+		DestroyIcon(_hicon);
 
-    return TRUE;
+	_hicon = hicon_new;
+
+	free(szText);
+
+	return TRUE;
 }
 
-BOOL UpdateTray(HWND& hWnd, NOTIFYICONDATAW& nid, AsusDLL& asus_control) {
-	std::wstring tool_tip = _ts(L"Temp: ") + _ts(asus_control.get_thermal_cpu()) + _ts(L"°C\n") + _ts(L"Speed: ")
-							+ _ts(asus_control.get_fan_speed()) + _ts(L"RPM (") + _ts(asus_control.current_fan_percent) + _ts(L"%)");
+BOOL InitTray(HINSTANCE & hInst, HWND & hWnd, NOTIFYICONDATAW & nid) {
+	// NotifyIconData Icon Initialization
+	nid.cbSize = sizeof(nid);
+	nid.hWnd = hWnd;
+	nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+	nid.hIcon = LoadIcon(hInst, (LPCTSTR)MAKEINTRESOURCE(IDI_SMALL));
+	nid.uCallbackMessage = WM_USER_SHELLICON;
+	std::wstring tool_tip = _ts(L"Initializing...");
 	wmemcpy_s(nid.szTip, 128, tool_tip.c_str(), tool_tip.length());
-    if (!UpdateTrayIconNumber(hWnd, nid, asus_control)) {
-        _dErr(L"UpdateTrayIconNumber failed!");
-    }
-    nid.hIcon = _hicon;
+	TrayIconInit();
+	return Shell_NotifyIconW(NIM_ADD, &nid);
+}
+
+BOOL UpdateTray(HWND & hWnd, NOTIFYICONDATAW & nid, AsusDLL & asus_control, int current_mode) {
+	std::wstring tool_tip = _ts(L"CPU: ") + _ts(asus_control.current_cpu_thermal) + _ts(L"°C | GPU: ") + _ts(asus_control.current_gpu_thermal) + _ts(L"°C\n")
+		+ _ts(L"Speed: ") + _ts(asus_control.get_fan_speed()) + _ts(L"RPM (") + _ts(asus_control.current_fan_percent) + _ts(L"%)");
+	ZeroMemory(&nid.szTip, sizeof(nid.szTip)); // clear the string
+	wmemcpy_s(nid.szTip, 128, tool_tip.c_str(), tool_tip.length());
+
+	COLORREF clr;
+	switch (current_mode) {
+	case ID_POPUP_ECO:
+		clr = RGB(198, 255, 0);
+		break;
+	case ID_POPUP_BALANCED:
+		clr = RGB(64, 196, 255);
+		break;
+	case ID_POPUP_TURBO:
+		clr = RGB(255, 82, 82);
+		break;
+	default:
+		clr = RGB(255, 255, 255);
+		break;
+	}
+
+	if (!UpdateTrayIconNumber(hWnd, nid, asus_control, clr)) {
+		_dErr(L"UpdateTrayIconNumber failed!");
+	}
+	nid.hIcon = _hicon;
 	BOOL res = Shell_NotifyIconW(NIM_MODIFY, &nid);
-	_dInfo(L"Tray updated?");
 	return res;
 }

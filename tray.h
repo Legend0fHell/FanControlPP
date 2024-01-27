@@ -1,10 +1,8 @@
 #pragma once
 
-#include "get_data.h"
+#include "controller.h"
+#include "resource.h"
 
-#define	WM_USER_SHELLICON WM_USER + 1
-#define WM_TASKBAR_CREATE RegisterWindowMessage(_T("TaskbarCreated"))
-
-BOOL InitTray(HWND& hWnd, NOTIFYICONDATAW& nid);
-BOOL UpdateTray(HWND& hWnd, NOTIFYICONDATAW& nid, AsusDLL& asus_control);
+BOOL UpdateTray(HWND& hWnd, NOTIFYICONDATAW& nid, AsusDLL& asus_control, int current_mode);
 BOOL TrayIconInit();
+BOOL InitTray(HINSTANCE& hInst, HWND& hWnd, NOTIFYICONDATAW& nid);

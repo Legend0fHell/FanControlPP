@@ -11,6 +11,15 @@ HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 
+AsusDLL asus_control;
+inipp::Ini<wchar_t> settings;
+
+NOTIFYICONDATAW nid = {};
+bool toggle_change_fan_speed = true;
+int current_mode = ID_POPUP_BALANCED;
+int update_interval = 2000;
+bool startup = 0;
+
 // dirty trick
 bool thread_term = false;
 
@@ -39,7 +48,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 	wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_FANCONTROL));
 	wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
 	wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-	wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_FANCONTROL);
+	wcex.lpszMenuName = NULL;
 	wcex.lpszClassName = szWindowClass;
 	wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
@@ -59,19 +68,35 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 
 HWND InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
-	hInst = hInstance; // Store instance handle in our global variable
-	DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
-	HWND hWnd = CreateWindowW(szWindowClass, szTitle, dwStyle,
-		CW_USEDEFAULT, 0, 500, 500, nullptr, nullptr, hInstance, nullptr);
-	_dInfo(L"Window spawned!");
-	
-	if (!hWnd)
-	{
+	// check for single instance
+	HANDLE hMutex = CreateMutexW(NULL, FALSE, L"FanControl++-{10547806-8CBC-4BFC-86D2-4A26475BFB95}");
+	if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_ACCESS_DENIED) {
+		MessageBox(NULL, L"FanControl++ is already running!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
 		return NULL;
 	}
 
-	ShowWindow(hWnd, nCmdShow);
-	UpdateWindow(hWnd);
+	hInst = hInstance; // Store instance handle in our global variable
+
+	HWND hWnd = CreateWindowExW(
+		WS_EX_CLIENTEDGE,
+		szWindowClass,
+		szTitle,
+		WS_OVERLAPPEDWINDOW,
+		CW_USEDEFAULT,
+		CW_USEDEFAULT,
+		CW_USEDEFAULT,
+		CW_USEDEFAULT,
+		NULL,
+		NULL,
+		hInstance,
+		NULL);
+
+	if (!hWnd) {
+		MessageBox(NULL, L"Window creation failed!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
+		return 0;
+	}
+
+	_dInfo(L"Window initialized!");
 
 	return hWnd;
 }
@@ -81,23 +106,16 @@ static BOOL Cleanup(HWND& hWnd, NOTIFYICONDATAW& nid) {
 }
 
 static BOOL MainThread(HWND hWnd) noexcept(false) {
-	AsusDLL asus_control;
-	NOTIFYICONDATAW nid = {};
-	InitTray(hWnd, nid);
-
-	_dInfo(L"Thread called!");
 	while (!thread_term) {
-		BOOL DEBUG = FALSE;
-		if (!DEBUG) {
-			int temp = asus_control.get_thermal_cpu();
-			_dInfo(_ts(L"[Thread] Temp: ") + _ts(temp));
-			int perc = calc_fan_percent(temp);
-			asus_control.set_fan_speed(perc);
-			_dInfo(_ts(L"[Thread] Percent: ") + _ts(asus_control.current_fan_percent));
-		}
+		bool DEBUG = FALSE;
 
-		UpdateTray(hWnd, nid, asus_control);
-		Sleep(UPDATE_INTERVAL);
+		int temp = asus_control.get_thermal();
+		int perc = calc_fan_percent(temp, current_mode);
+		if (toggle_change_fan_speed) asus_control.set_fan_speed(perc);
+		_dInfo(_ts(L"[Thread] Temp: ") + _ts(temp) + _ts(L" | Percent: ") + _ts(trunc(asus_control.current_fan_percent)) + _ts(L" | Mode: ") + _ts(current_mode - ID_POPUP_ECO));
+
+		UpdateTray(hWnd, nid, asus_control, current_mode);
+		Sleep(update_interval);
 	}
 
 	return Cleanup(hWnd, nid);
@@ -115,41 +133,99 @@ static BOOL MainThread(HWND hWnd) noexcept(false) {
 //
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	switch (message)
-	{
-	case WM_COMMAND:
-	{
-		int wmId = LOWORD(wParam);
-		// Parse the menu selections:
-		switch (wmId)
-		{
-		case IDM_ABOUT:
-			//DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-			break;
-		case IDM_EXIT:
+	POINT lpClickPoint;
+
+	if (message == WM_TASKBAR_CREATE) {			// Taskbar has been recreated (Explorer crashed?)
+		// Display tray icon
+		if (!InitTray(hInst, hWnd, nid)) {
+			MessageBox(NULL, L"Systray Icon Creation Failed!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
 			DestroyWindow(hWnd);
-			break;
-		default:
-			return DefWindowProc(hWnd, message, wParam, lParam);
+			return -1;
 		}
 	}
-	break;
-	case WM_PAINT:
+	switch (message)
 	{
-		PAINTSTRUCT ps;
-
-		HDC hdc = BeginPaint(hWnd, &ps);
-		// TODO: Add any drawing code that uses hdc here...
-		EndPaint(hWnd, &ps);
-	}
-	break;
 	case WM_DESTROY:
-		PostQuitMessage(0);
+		Cleanup(hWnd, nid);	// Remove Tray Item
+		PostQuitMessage(0);							// Quit
+		break;
+	case WM_USER_SHELLICON:			// sys tray icon Messages
+		switch (LOWORD(lParam))
+		{
+		case WM_LBUTTONDOWN:
+		case WM_RBUTTONDOWN:		// Click on sys tray icon
+		{
+			HMENU hMenu, hSubMenu;
+			GetCursorPos(&lpClickPoint);
+
+			// Load menu resource
+			hMenu = LoadMenuW(hInst, MAKEINTRESOURCE(IDC_FANCONTROL));
+			if (!hMenu)
+				return -1;	// !0, message not successful?
+
+			// Select the first submenu
+			hSubMenu = GetSubMenu(hMenu, 0);
+			if (!hSubMenu) {
+				DestroyMenu(hMenu);        // Be sure to Destroy Menu Before Returning
+				return -1;
+			}
+
+			// Set Enabled State
+			CheckMenuItem(hSubMenu, ID_POPUP_ENABLE, MF_BYCOMMAND | (toggle_change_fan_speed ? MF_CHECKED : MF_UNCHECKED));
+			CheckMenuItem(hSubMenu, ID_POPUP_STARTUP, MF_BYCOMMAND | (startup ? MF_CHECKED : MF_UNCHECKED));
+
+			CheckMenuItem(hSubMenu, ID_POPUP_ECO, MF_BYCOMMAND | (current_mode == ID_POPUP_ECO ? MF_CHECKED : MF_UNCHECKED));
+			CheckMenuItem(hSubMenu, ID_POPUP_BALANCED, MF_BYCOMMAND | (current_mode == ID_POPUP_BALANCED ? MF_CHECKED : MF_UNCHECKED));
+			CheckMenuItem(hSubMenu, ID_POPUP_TURBO, MF_BYCOMMAND | (current_mode == ID_POPUP_TURBO ? MF_CHECKED : MF_UNCHECKED));
+
+			// Display menu
+			SetForegroundWindow(hWnd);
+			TrackPopupMenu(hSubMenu, TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_BOTTOMALIGN, lpClickPoint.x, lpClickPoint.y, 0, hWnd, NULL);
+			SendMessage(hWnd, WM_NULL, 0, 0);
+
+			// Kill off objects we're done with
+			DestroyMenu(hMenu);
+		}
+		break;
+		}
+		break;
+	case WM_CLOSE:
+		Cleanup(hWnd, nid);	// Remove Tray Item
+		DestroyWindow(hWnd);	// Destroy Window
+		break;
+	case WM_COMMAND:
+		switch (LOWORD(wParam))
+		{
+		case ID_POPUP_EXIT:
+			Cleanup(hWnd, nid);			// Remove Tray Item
+			DestroyWindow(hWnd);		// Destroy Window
+			break;
+		case ID_POPUP_ABOUT:			// Open about box
+			DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+			break;
+		case ID_POPUP_ENABLE:			// Toggle Enable
+			toggle_change_fan_speed = !toggle_change_fan_speed;
+			asus_control.set_fan_test_mode(toggle_change_fan_speed ? 0x01 : 0x00);
+			break;
+		case ID_POPUP_STARTUP:			// Toggle Startup
+			startup = !startup;
+			settings.sections[L"General"][L"Startup"] = _ts(startup);
+			write_settings(settings);
+			break;
+		case ID_POPUP_ECO:
+		case ID_POPUP_BALANCED:
+		case ID_POPUP_TURBO:
+			current_mode = LOWORD(wParam);
+			settings.sections[L"General"][L"CurrentMode"] = _ts(current_mode);
+			write_settings(settings);
+			UpdateTray(hWnd, nid, asus_control, current_mode);
+			break;
+		}
 		break;
 	default:
 		return DefWindowProc(hWnd, message, wParam, lParam);
 	}
-	return 0;
+	return 0;		// Return 0 = Message successfully proccessed
 }
 
 // Message handler for about box.
@@ -180,8 +256,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
 
-	// TODO: Place code here.
-	
 	// Initialize global strings
 	LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
 	LoadStringW(hInstance, IDC_FANCONTROL, szWindowClass, MAX_LOADSTRING);
@@ -192,6 +266,22 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	if (hWnd == NULL)
 	{
 		return FALSE;
+	}
+
+	// Load settings
+	read_settings(settings);
+	inipp::extract(settings.sections[L"General"][L"UpdateInterval"], update_interval);
+	inipp::extract(settings.sections[L"General"][L"CurrentMode"], current_mode);
+	int tmp_startup = 0;
+	inipp::extract(settings.sections[L"General"][L"Startup"], tmp_startup);
+	startup = tmp_startup;
+
+	bool toggle_change_fan_speed = TRUE;
+	// Display tray icon
+	if (!InitTray(hInst, hWnd, nid)) {
+		MessageBox(NULL, L"Systray Icon Creation Failed!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
+		DestroyWindow(hWnd);
+		return 0;
 	}
 
 	HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_FANCONTROL));
@@ -210,9 +300,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		}
 	}
 
+	Cleanup(hWnd, nid);
+
 	// kinda dirty trick, investigate later
 	thread_term = true;
 	main_thread.join();
-	
+
 	return (int)msg.wParam;
 }

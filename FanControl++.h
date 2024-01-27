@@ -5,7 +5,7 @@
 #include <thread>
 
 #include "utils.h"
-#include "get_data.h"
+#include "controller.h"
 #include "temp_handle.h"
 #include "tray.h"
 
