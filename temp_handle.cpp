@@ -1,6 +1,6 @@
 #include "temp_handle.h"
 
-std::vector<std::pair<ULONG, ULONG>> convert_fan_curve(std::wstring str)
+std::vector<std::pair<ULONG, ULONG>> convert_fan_curve(std::wstring& str)
 {
 	std::vector<std::pair<ULONG, ULONG>> result;
 	std::pair<ULONG, ULONG> tmp_pair;
@@ -25,6 +25,50 @@ std::vector<std::pair<ULONG, ULONG>> convert_fan_curve(std::wstring str)
 	return result;
 }
 
+bool validator(std::wstring& str)
+{
+	if (str.size() == 0) return false;				// empty string
+	if (str[0] < '0' || str[0] > '9') return false;	// first char is not a number
+	if (str.back() != '%') return false;				// last char is not '%'
+
+	// check if all chars are valid
+	for (wchar_t& c : str) {
+		if ((c >= '0' && c <= '9') || (c == ';') || (c == ':') || (c == '%') || (c == 'c')) continue;
+		else return false;
+	}
+
+	//	check if all chars are in correct order
+	for (size_t i = 1; i < str.size(); i++) {
+		if (str[i] == 'c') {
+			if (str[i - 1] < '0' || str[i - 1] > '9') return false;
+		}
+		if (str[i] == '%') {
+			if (str[i - 1] < '0' || str[i - 1] > '9') return false;
+		}
+		if (str[i] == ':') {
+			if (str[i - 1] != 'c') return false;
+		}
+		if (str[i] == ';') {
+			if (str[i - 1] != '%') return false;
+		}
+	}
+
+	// check if all numbers are valid
+	std::vector<std::pair<ULONG, ULONG>> fan_curve = convert_fan_curve(str);
+	if (fan_curve.size() == 0) return false;
+	for (std::pair<ULONG, ULONG>& p : fan_curve) {
+		if (p.first > 110UL) return false;
+		if (p.second > 100UL) return false;
+	}
+	return true;
+}
+
+bool validator(wchar_t* str)
+{
+	std::wstring tmp_str(str);
+	return validator(tmp_str);
+}
+
 ULONG calc_fan_percent(ULONG temperature, int mode)
 {
 	inipp::Ini<wchar_t> settings;
@@ -44,10 +88,13 @@ ULONG calc_fan_percent(ULONG temperature, int mode)
 		MessageBox(NULL, L"Invalid operation mode!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
 		break;
 	}
+	if (validator(fan_str) == false) {
+		MessageBox(NULL, L"Invalid fan curve!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
+		return -1;
+	}
 	std::vector<std::pair<ULONG, ULONG>> fan_curve = convert_fan_curve(fan_str);
 
 	settings.clear();
-	if (fan_curve.size() == 0) return -1;
 	if (temperature <= fan_curve[0].first) return fan_curve[0].second;
 	if (temperature >= fan_curve.back().first) return fan_curve.back().second;
 

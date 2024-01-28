@@ -18,7 +18,6 @@ private:
 	int get_fan_count();
 	bool set_fan_speed_idx(byte value, byte fanIdx);
 	bool init_status = false;
-	char current_fan_test_mode = 0x00;
 	ULONGLONG last_update_thermal = 0;
 	ULONGLONG last_update_fan_speed = 0;
 	int fan_count = -1;
@@ -32,6 +31,8 @@ public:
 	bool set_fan_test_mode(char mode);
 	int get_fan_speed_idx(byte fanIdx);
 	std::vector<int> get_fan_speed();
+	bool error_occured = false;
+	char current_fan_test_mode = 0x00;
 	float current_fan_percent = 0;
 	int current_cpu_thermal = 0;
 	int current_gpu_thermal = 0;

@@ -22,12 +22,14 @@ bool startup = 0;
 
 // dirty trick
 bool thread_term = false;
+HWND current_settings_hwnd = 0;
 
 // Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 HWND                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
+INT_PTR CALLBACK    Settings(HWND, UINT, WPARAM, LPARAM);
 
 //
 //  FUNCTION: MyRegisterClass()
@@ -101,21 +103,89 @@ HWND InitInstance(HINSTANCE hInstance, int nCmdShow)
 	return hWnd;
 }
 
+static BOOL SysRegisterRestart(bool is_register) {
+	HRESULT status;
+
+	if (is_register)
+	{
+		status = RegisterApplicationRestart(L"-minimized", RESTART_NO_CRASH);
+	}
+	else
+	{
+		status = UnregisterApplicationRestart();
+	}
+
+	return SUCCEEDED(status);
+}
+
+static BOOL ChangeStartupBehavior(BOOL enable) {
+	HKEY hKey;
+	LONG lResult;
+
+	lResult = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &hKey);
+	if (lResult != ERROR_SUCCESS) {
+		_dErr(_ts(L"[Startup] Cannot open registry key!"));
+		MessageBox(NULL, L"Cannot open registry key!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
+		return FALSE;
+	}
+
+	if (enable) {
+		wchar_t szPath[MAX_PATH];
+		GetModuleFileNameW(NULL, szPath, MAX_PATH);
+		std::wstring tmp(szPath);
+		tmp = L"\"" + tmp + L"\" -minimized";
+
+		wcscpy_s(szPath, tmp.c_str());
+		lResult = RegSetValueExW(hKey, L"FanControl++", 0, REG_SZ, (LPBYTE)(szPath), sizeof(szPath));
+
+		if (lResult != ERROR_SUCCESS) {
+			_dErr(_ts(L"[Startup] Cannot set registry key!"));
+			MessageBox(NULL, L"Cannot set registry key!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
+			RegCloseKey(hKey);
+			return FALSE;
+		}
+
+		SysRegisterRestart(true);
+	}
+	else {
+		lResult = RegDeleteValueW(hKey, L"FanControl++");
+		if (lResult != ERROR_SUCCESS && lResult != ERROR_FILE_NOT_FOUND) {
+			_dErr(_ts(L"[Startup] Cannot delete registry key!"));
+			MessageBox(NULL, L"Cannot delete registry key!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
+			RegCloseKey(hKey);
+			return FALSE;
+		}
+
+		SysRegisterRestart(false);
+	}
+
+	_dInfo(_ts(L"[Startup] Startup behavior changed to ") + _ts(enable));
+	RegCloseKey(hKey);
+	return TRUE;
+}
+
 static BOOL Cleanup(HWND& hWnd, NOTIFYICONDATAW& nid) {
 	return Shell_NotifyIconW(NIM_DELETE, &nid);
 }
 
 static BOOL MainThread(HWND hWnd) noexcept(false) {
 	while (!thread_term) {
-		bool DEBUG = FALSE;
+		if (asus_control.error_occured) {
+			_dErr(_ts(L"[Thread] Error occured!"));
+			SendMessage(hWnd, WM_CLOSE, 0, 0);
+		}
 
 		int temp = asus_control.get_thermal();
-		int perc = calc_fan_percent(temp, current_mode);
-		if (toggle_change_fan_speed) asus_control.set_fan_speed(perc);
+		if (toggle_change_fan_speed) {
+			int perc = calc_fan_percent(temp, current_mode);
+			if (perc < 0) _dErr(_ts(L"[Thread] Invalid fan percent!"));
+			else asus_control.set_fan_speed(perc);
+		}
+
 		_dInfo(_ts(L"[Thread] Temp: ") + _ts(temp) + _ts(L" | Percent: ") + _ts(trunc(asus_control.current_fan_percent)) + _ts(L" | Mode: ") + _ts(current_mode - ID_POPUP_ECO));
 
 		UpdateTray(hWnd, nid, asus_control, current_mode);
-		Sleep(update_interval);
+		Sleep(update_interval - 500);
 	}
 
 	return Cleanup(hWnd, nid);
@@ -134,7 +204,10 @@ static BOOL MainThread(HWND hWnd) noexcept(false) {
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	POINT lpClickPoint;
-
+	if (asus_control.error_occured) {
+		DestroyWindow(hWnd);
+		return -1;
+	}
 	if (message == WM_TASKBAR_CREATE) {			// Taskbar has been recreated (Explorer crashed?)
 		// Display tray icon
 		if (!InitTray(hInst, hWnd, nid)) {
@@ -203,12 +276,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		case ID_POPUP_ABOUT:			// Open about box
 			DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
 			break;
+		case ID_POPUP_SETTINGS:
+			if(current_settings_hwnd == 0) DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGSBOX), hWnd, Settings);
+			else {
+				SetForegroundWindow(current_settings_hwnd); // focus on the window
+			}
+			break;
 		case ID_POPUP_ENABLE:			// Toggle Enable
 			toggle_change_fan_speed = !toggle_change_fan_speed;
 			asus_control.set_fan_test_mode(toggle_change_fan_speed ? 0x01 : 0x00);
 			break;
 		case ID_POPUP_STARTUP:			// Toggle Startup
 			startup = !startup;
+			if (!ChangeStartupBehavior(startup)) startup = !startup; // revert if failed
 			settings.sections[L"General"][L"Startup"] = _ts(startup);
 			write_settings(settings);
 			break;
@@ -248,6 +328,111 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 	return (INT_PTR)FALSE;
 }
 
+// Message handler for settings box.
+INT_PTR CALLBACK Settings(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	
+	UNREFERENCED_PARAMETER(lParam);
+	switch (message)
+	{
+	case WM_INITDIALOG:
+	{
+		current_settings_hwnd = hDlg;
+		read_settings(settings);
+		std::wstring tmp_eco, tmp_balanced, tmp_turbo;
+		inipp::extract(settings.sections[L"Curves"][L"FanTurbo"], tmp_turbo);
+		inipp::extract(settings.sections[L"Curves"][L"FanBalanced"], tmp_balanced);
+		inipp::extract(settings.sections[L"Curves"][L"FanEco"], tmp_eco);
+
+		SetDlgItemInt(hDlg, IDC_EDIT_INTERVAL, update_interval, FALSE);
+
+		SetDlgItemTextW(hDlg, IDC_EDIT_ECO, tmp_eco.c_str());
+		SetDlgItemTextW(hDlg, IDC_EDIT_BALANCED, tmp_balanced.c_str());
+		SetDlgItemTextW(hDlg, IDC_EDIT_TURBO, tmp_turbo.c_str());
+
+		CheckDlgButton(hDlg, IDC_CHECK_ENABLE, toggle_change_fan_speed);
+		CheckDlgButton(hDlg, IDC_CHECK_STARTUP, startup);
+
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Eco");
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Balanced");
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Turbo");
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_MODE), CB_SETCURSEL, static_cast<WPARAM>(current_mode - ID_POPUP_ECO), 0);
+
+		return (INT_PTR)TRUE;
+	}
+	case WM_COMMAND:
+		switch (LOWORD(wParam))
+		{
+		case IDC_BUTTON_OK:
+		{
+			// read settings
+			read_settings(settings);
+
+			// update interval
+			int tmp_update_interval = GetDlgItemInt(hDlg, IDC_EDIT_INTERVAL, NULL, FALSE);
+			if (tmp_update_interval < 500 || tmp_update_interval > 30000) {
+				MessageBox(NULL, L"Update interval not in the range of [500;30000]!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
+				break;
+			}
+			update_interval = tmp_update_interval;
+			settings.sections[L"General"][L"UpdateInterval"] = _ts(update_interval);
+
+			// update current mode
+			current_mode = SendMessageW(GetDlgItem(hDlg, IDC_COMBO_MODE), CB_GETCURSEL, 0, 0) + ID_POPUP_ECO;
+			settings.sections[L"General"][L"CurrentMode"] = _ts(current_mode);
+
+			// update fan curves
+			wchar_t tmp_eco[256], tmp_balanced[256], tmp_turbo[256];
+			GetDlgItemTextW(hDlg, IDC_EDIT_ECO, tmp_eco, 256);
+			GetDlgItemTextW(hDlg, IDC_EDIT_BALANCED, tmp_balanced, 256);
+			GetDlgItemTextW(hDlg, IDC_EDIT_TURBO, tmp_turbo, 256);
+
+			if (validator(tmp_eco) == false || validator(tmp_balanced) == false || validator(tmp_turbo) == false) {
+				MessageBox(NULL, L"Invalid fan curve!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
+				break;
+			}
+
+			settings.sections[L"Curves"][L"FanEco"] = _ts(tmp_eco);
+			settings.sections[L"Curves"][L"FanBalanced"] = _ts(tmp_balanced);
+			settings.sections[L"Curves"][L"FanTurbo"] = _ts(tmp_turbo);
+
+			// update enable
+			toggle_change_fan_speed = IsDlgButtonChecked(hDlg, IDC_CHECK_ENABLE);
+			asus_control.set_fan_test_mode(toggle_change_fan_speed ? 0x01 : 0x00);
+
+			// update startup
+			bool tmp_startup = IsDlgButtonChecked(hDlg, IDC_CHECK_STARTUP);
+			if (tmp_startup != startup) {
+				startup = tmp_startup;
+				if (!ChangeStartupBehavior(startup)) startup = !startup; // revert if failed
+				settings.sections[L"General"][L"Startup"] = _ts(startup);
+			}
+
+			// close dialog
+			EndDialog(hDlg, LOWORD(wParam));
+
+			// write settings
+			write_settings(settings);
+
+			// update tray icon
+			UpdateTray(GetParent(hDlg), nid, asus_control, current_mode);
+
+			current_settings_hwnd = 0;
+			return (INT_PTR)TRUE;
+		}
+		case IDC_BUTTON_CANCEL:
+		case IDCANCEL:
+		{
+			EndDialog(hDlg, LOWORD(wParam));
+			current_settings_hwnd = 0;
+			return (INT_PTR)TRUE;
+		}
+		}
+		break;
+	}
+	return (INT_PTR)FALSE;
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	_In_opt_ HINSTANCE hPrevInstance,
 	_In_ LPWSTR    lpCmdLine,
@@ -275,11 +460,19 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	int tmp_startup = 0;
 	inipp::extract(settings.sections[L"General"][L"Startup"], tmp_startup);
 	startup = tmp_startup;
+	ChangeStartupBehavior(startup);
 
 	bool toggle_change_fan_speed = TRUE;
+	asus_control.set_fan_test_mode(0x01);
+
 	// Display tray icon
 	if (!InitTray(hInst, hWnd, nid)) {
 		MessageBox(NULL, L"Systray Icon Creation Failed!", L"Error!", MB_ICONEXCLAMATION | MB_OK);
+		DestroyWindow(hWnd);
+		return 0;
+	}
+
+	if (asus_control.error_occured) {
 		DestroyWindow(hWnd);
 		return 0;
 	}

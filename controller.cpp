@@ -15,6 +15,8 @@ AsusDLL::AsusDLL() {
 	_dInfo(L"Constructor called");
 	if (asus_dll == NULL) {
 		failed(_ts(L"DLL not loaded yet!!"));
+		MessageBox(NULL, _ts(L"Cannot initiate DLL!\nPlease recheck if AsusWinIO64.dll is in the same folder with this executable!").c_str(), _ts(L"Error").c_str(), MB_ICONERROR | MB_OK);
+		error_occured = true;
 		return;
 	}
 	typedef void (*Cons)();
@@ -26,10 +28,15 @@ AsusDLL::AsusDLL() {
 
 AsusDLL::~AsusDLL() noexcept(false) {
 	_dInfo(L"Destructor called");
+	if (!init_status) {
+		_dErr(L"Already killed!");
+		return;
+	}
 	AsusDLL::set_fan_test_mode(0x00);
 	typedef void (*Dest)();
 	Dest shutdown = (Dest)GetProcAddress(asus_dll, "ShutdownWinIo");
 	shutdown();
+	FreeLibrary(asus_dll);
 	init_status = false;
 	_dInfo(L"Killed!");
 }
@@ -49,6 +56,7 @@ int AsusDLL::get_fan_count()
 bool AsusDLL::set_fan_test_mode(char mode)
 {
 	if (!init_status) return failed();
+	if (current_fan_test_mode == mode) return success();
 	if (mode == 0x00) current_fan_percent = 0;
 	typedef void (*FanTestMode)(char value);
 	FanTestMode set_fan_test_mode = (FanTestMode)GetProcAddress(asus_dll, "HealthyTable_SetFanTestMode");
@@ -69,9 +77,8 @@ bool AsusDLL::set_fan_pwm_duty(byte value)
 bool AsusDLL::set_fan_speed_idx(byte value, byte fanIdx = 0)
 {
 	if (!init_status) return failed(_ts(L"Set fan speed #") + _ts(fanIdx) + _ts(L" failed"));
-	if (current_fan_test_mode == 0) {
-		if (value > 1) AsusDLL::set_fan_test_mode(0x01);
-		else return success(_ts(L"Fan test mode is not enabled, skip setting fan speed #") + _ts(fanIdx), false);
+	if (current_fan_test_mode == 0x00) {
+		return success(_ts(L"Fan test mode is not enabled, skip setting fan speed #") + _ts(fanIdx), false);
 	}
 	typedef void (*FanIdx)(byte fanIndex);
 	FanIdx set_fan_idx = (FanIdx)GetProcAddress(asus_dll, "HealthyTable_SetFanIndex");

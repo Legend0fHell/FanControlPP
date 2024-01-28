@@ -227,12 +227,7 @@ BOOL InitTray(HINSTANCE & hInst, HWND & hWnd, NOTIFYICONDATAW & nid) {
 	return Shell_NotifyIconW(NIM_ADD, &nid);
 }
 
-BOOL UpdateTray(HWND & hWnd, NOTIFYICONDATAW & nid, AsusDLL & asus_control, int current_mode) {
-	std::wstring tool_tip = _ts(L"CPU: ") + _ts(asus_control.current_cpu_thermal) + _ts(L"°C | GPU: ") + _ts(asus_control.current_gpu_thermal) + _ts(L"°C\n")
-		+ _ts(L"Speed: ") + _ts(asus_control.get_fan_speed()) + _ts(L"RPM (") + _ts(asus_control.current_fan_percent) + _ts(L"%)");
-	ZeroMemory(&nid.szTip, sizeof(nid.szTip)); // clear the string
-	wmemcpy_s(nid.szTip, 128, tool_tip.c_str(), tool_tip.length());
-
+BOOL UpdateTray(HWND hWnd, NOTIFYICONDATAW & nid, AsusDLL & asus_control, int& current_mode) {
 	COLORREF clr;
 	switch (current_mode) {
 	case ID_POPUP_ECO:
@@ -248,11 +243,19 @@ BOOL UpdateTray(HWND & hWnd, NOTIFYICONDATAW & nid, AsusDLL & asus_control, int 
 		clr = RGB(255, 255, 255);
 		break;
 	}
+	if (asus_control.current_fan_test_mode == 0x00) {
+		clr = RGB(224, 224, 224);
+	}
+
+	std::wstring tool_tip = asus_control.current_fan_test_mode ? _ts(L"ENABLED") : _ts(L"DISABLED");
+	tool_tip += _ts(L"\nCPU: ") + _ts(asus_control.current_cpu_thermal) + _ts(L"°C | GPU: ") + _ts(asus_control.current_gpu_thermal) + _ts(L"°C\n")
+		+ _ts(L"Speed: ") + _ts(asus_control.get_fan_speed()) + _ts(L"RPM (") + _ts(asus_control.current_fan_percent) + _ts(L"%)");
+	ZeroMemory(&nid.szTip, sizeof(nid.szTip)); // clear the string
+	wmemcpy_s(nid.szTip, 128, tool_tip.c_str(), tool_tip.length());
 
 	if (!UpdateTrayIconNumber(hWnd, nid, asus_control, clr)) {
 		_dErr(L"UpdateTrayIconNumber failed!");
 	}
 	nid.hIcon = _hicon;
-	BOOL res = Shell_NotifyIconW(NIM_MODIFY, &nid);
-	return res;
+	return Shell_NotifyIconW(NIM_MODIFY, &nid);
 }

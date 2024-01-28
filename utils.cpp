@@ -1,23 +1,26 @@
 #include "utils.h"
 
+#ifdef _DEBUG
 void _dInfo(const wchar_t str[]) {
-	std::wstring new_str(str);
+	const std::wstring new_str(str);
 	OutputDebugString((L"[Info] " + new_str + L"\n").c_str());
 }
-
 void _dInfo(const std::wstring str) {
 	OutputDebugString((L"[Info] " + str + L"\n").c_str());
 }
-
 void _dErr(const wchar_t str[]) {
-	std::wstring new_str(str);
+	const std::wstring new_str(str);
 	OutputDebugString((L"[ERROR] " + new_str + L"\n").c_str());
 }
-
-void _dErr(const std::wstring str)
-{
+void _dErr(const std::wstring str) {
 	OutputDebugString((L"[ERROR] " + str + L"\n").c_str());
 }
+#else
+void _dInfo(const wchar_t str[]) {}
+void _dInfo(const std::wstring str) {}
+void _dErr(const wchar_t str[]) {}
+void _dErr(const std::wstring str) {}
+#endif
 
 std::wstring _ts(const int& value)
 {

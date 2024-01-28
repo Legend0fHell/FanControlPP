@@ -39,8 +39,6 @@ BOOL create_default_settings() {
 	settings.sections[L"Curves"][L"FanBalanced"] = _ts(L"45c:0%;60c:35%;65c:40%;70c:50%;75c:55%;80c:70%;85c:80%;90c:90%");
 	settings.sections[L"Curves"][L"FanTurbo"] = _ts(L"30c:0%;45c:35%;65c:45%;70c:50%;74c:55%;77c:61%;80c:75%;83c:90%;88c:100%");
 
-	current_settings_data = settings;
-
 	return write_settings(settings);
 }
 
