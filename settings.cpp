@@ -32,6 +32,7 @@ BOOL create_default_settings() {
 	settings.sections[L"General"][L"UpdateInterval"] = _ts(2000);
 	settings.sections[L"General"][L"TrayIconSize"] = _ts(64);
 	settings.sections[L"General"][L"TrayIconFont"] = _ts(L"Arial");
+	settings.sections[L"General"][L"TrayIconFontSize"] = _ts(L"48");
 	settings.sections[L"General"][L"CurrentMode"] = _ts(ID_POPUP_BALANCED);
 	settings.sections[L"General"][L"Startup"] = _ts(0);
 

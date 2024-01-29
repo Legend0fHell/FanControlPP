@@ -9,6 +9,13 @@ RECT _icon_size;
 int tray_icon_number = 0;
 COLORREF tray_icon_clr;
 
+const COLORREF CLR_ECO = RGB(198, 255, 0);
+const COLORREF CLR_BALANCED = RGB(64, 196, 255);
+const COLORREF CLR_TURBO = RGB(255, 82, 82);
+const COLORREF CLR_DISABLED = RGB(224, 224, 224);
+const COLORREF CLR_WHITE = RGB(255, 255, 255);
+const COLORREF CLR_BLACK = RGB(0, 0, 0);
+
 // get dpi value using dpix and dpiy
 LONG GetDPIValue(HDC hdc, RECT* rect) {
 	LONG dpi = 0;
@@ -50,14 +57,14 @@ void FontInit(PLOGFONT logfont) {
 
 	inipp::Ini<wchar_t> settings;
 	read_settings(settings);
-	int tray_icon_size = 0;
 	std::wstring font_face_name = L"Arial";
-	inipp::extract(settings.sections[L"General"][L"TrayIconSize"], tray_icon_size);
+	int tray_icon_font_size = 48;
 	inipp::extract(settings.sections[L"General"][L"TrayIconFont"], font_face_name);
+	inipp::extract(settings.sections[L"General"][L"TrayIconFontSize"], tray_icon_font_size);
 	settings.clear();
 
 	wcscpy_s(logfont->lfFaceName, font_face_name.c_str());
-	logfont->lfHeight = -(LONG)((tray_icon_size * 4 / 5) * GetTaskbarDPI()) / 96;
+	logfont->lfHeight = -(LONG)(tray_icon_font_size * GetTaskbarDPI()) / 96;
 	logfont->lfWeight = FW_BOLD;
 	logfont->lfCharSet = DEFAULT_CHARSET;
 	logfont->lfQuality = CLEARTYPE_QUALITY;
@@ -101,7 +108,7 @@ BOOL TrayIconInit() {
 
 	inipp::Ini<wchar_t> settings;
 	read_settings(settings);
-	int tray_icon_size = 0;
+	int tray_icon_size = 64;
 	inipp::extract(settings.sections[L"General"][L"TrayIconSize"], tray_icon_size);
 	settings.clear();
 
@@ -117,8 +124,9 @@ BOOL TrayIconInit() {
 	_hdc_mask = CreateCompatibleDC(hdcOri);
 
 	// Create bitmap
-	_hbitmap = CreateAlphaBitmap(_hdc, tray_icon_size, tray_icon_size, &bits);
-	_hbitmap_mask = CreateBitmap(tray_icon_size, tray_icon_size, 1, 1, NULL);
+	_hbitmap = CreateAlphaBitmap(_hdc, _icon_size.right, _icon_size.bottom, &bits);
+	_hbitmap_mask = CreateBitmap(_icon_size.right, _icon_size.bottom, 1, 1, NULL);
+
 	ReleaseDC(NULL, hdcOri);
 	return TRUE;
 }
@@ -149,24 +157,26 @@ void UpdateText(HDC & hdc, wchar_t* szText, int text_length, PRECT rect, COLORRE
 
 	prev_clr = SetTextColor(hdc, clr);
 
-	flags = DT_BOTTOM | DT_CENTER | DT_SINGLELINE | DT_NOCLIP | DT_NOPREFIX;
+	flags = DT_VCENTER | DT_CENTER | DT_SINGLELINE | DT_NOCLIP | DT_NOPREFIX;
 
 	DrawTextExW(hdc, szText, text_length, rect, flags, NULL);
 
 	SetTextColor(hdc, prev_clr);
 }
 
-BOOL UpdateTrayIconNumber(HWND & hWnd, NOTIFYICONDATAW & nid, AsusDLL & asus_control, COLORREF & clr) {
-	// if the number is the same, no need to update
-	if (tray_icon_number == asus_control.get_thermal() && tray_icon_clr == clr) {
-		return TRUE;
+BOOL UpdateTrayIconNumber(COLORREF clr, const wchar_t* str, const int num) {
+	wchar_t* szText = NULL;
+	if (str != NULL) szText = _wcsdup(str);
+	else {
+		if (tray_icon_clr == clr && tray_icon_number == num) {
+			return TRUE; // if the number is the same, no need to update
+		}
+		tray_icon_number = num;
+		szText = _wcsdup(_ts(tray_icon_number).c_str());
+		_dInfo(_ts(L"[UpdateTrayIconNumber] Thermal Updating Icon: ") + _ts(tray_icon_number));
 	}
 
-	tray_icon_number = asus_control.get_thermal();
 	tray_icon_clr = clr;
-
-	wchar_t* szText = _wcsdup(_ts(tray_icon_number).c_str());
-	_dInfo(_ts(L"[UpdateTrayIconNumber] Thermal Updating Icon: ") + _ts(tray_icon_number));
 
 	HGDIOBJ prev_bmp, prev_font;
 	ICONINFO iconInfo{};
@@ -189,9 +199,9 @@ BOOL UpdateTrayIconNumber(HWND & hWnd, NOTIFYICONDATAW & nid, AsusDLL & asus_con
 	prev_font = SelectObject(_hdc_mask, _hfont);
 	prev_mode = SetBkMode(_hdc_mask, TRANSPARENT);
 
-	DrawBackground(_hdc_mask, RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255));
+	DrawBackground(_hdc_mask, CLR_WHITE, CLR_WHITE, CLR_WHITE);
 
-	UpdateText(_hdc_mask, szText, lstrlen(szText), &_icon_size, RGB(0, 0, 0));
+	UpdateText(_hdc_mask, szText, lstrlen(szText), &_icon_size, CLR_BLACK);
 
 	SetBkMode(_hdc_mask, prev_mode);
 
@@ -216,14 +226,15 @@ BOOL UpdateTrayIconNumber(HWND & hWnd, NOTIFYICONDATAW & nid, AsusDLL & asus_con
 
 BOOL InitTray(HINSTANCE & hInst, HWND & hWnd, NOTIFYICONDATAW & nid) {
 	// NotifyIconData Icon Initialization
+	TrayIconInit();
+	UpdateTrayIconNumber(CLR_DISABLED, L"--", 0);
 	nid.cbSize = sizeof(nid);
 	nid.hWnd = hWnd;
 	nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-	nid.hIcon = LoadIcon(hInst, (LPCTSTR)MAKEINTRESOURCE(IDI_SMALL));
+	nid.hIcon = _hicon;
 	nid.uCallbackMessage = WM_USER_SHELLICON;
 	std::wstring tool_tip = _ts(L"Initializing...");
 	wmemcpy_s(nid.szTip, 128, tool_tip.c_str(), tool_tip.length());
-	TrayIconInit();
 	return Shell_NotifyIconW(NIM_ADD, &nid);
 }
 
@@ -231,29 +242,29 @@ BOOL UpdateTray(HWND hWnd, NOTIFYICONDATAW & nid, AsusDLL & asus_control, int& c
 	COLORREF clr;
 	switch (current_mode) {
 	case ID_POPUP_ECO:
-		clr = RGB(198, 255, 0);
+		clr = CLR_ECO;
 		break;
 	case ID_POPUP_BALANCED:
-		clr = RGB(64, 196, 255);
+		clr = CLR_BALANCED;
 		break;
 	case ID_POPUP_TURBO:
-		clr = RGB(255, 82, 82);
+		clr = CLR_TURBO;
 		break;
 	default:
-		clr = RGB(255, 255, 255);
+		clr = CLR_WHITE;
 		break;
 	}
 	if (asus_control.current_fan_test_mode == 0x00) {
-		clr = RGB(224, 224, 224);
+		clr = CLR_DISABLED;
 	}
 
-	std::wstring tool_tip = asus_control.current_fan_test_mode ? _ts(L"ENABLED") : _ts(L"DISABLED");
+	std::wstring tool_tip = _ts(L"Currently ") + (asus_control.current_fan_test_mode ? _ts(L"enabled!") : _ts(L"disabled!"));
 	tool_tip += _ts(L"\nCPU: ") + _ts(asus_control.current_cpu_thermal) + _ts(L"°C | GPU: ") + _ts(asus_control.current_gpu_thermal) + _ts(L"°C\n")
 		+ _ts(L"Speed: ") + _ts(asus_control.get_fan_speed()) + _ts(L"RPM (") + _ts(asus_control.current_fan_percent) + _ts(L"%)");
 	ZeroMemory(&nid.szTip, sizeof(nid.szTip)); // clear the string
 	wmemcpy_s(nid.szTip, 128, tool_tip.c_str(), tool_tip.length());
 
-	if (!UpdateTrayIconNumber(hWnd, nid, asus_control, clr)) {
+	if (!UpdateTrayIconNumber(clr, NULL, asus_control.get_thermal())) {
 		_dErr(L"UpdateTrayIconNumber failed!");
 	}
 	nid.hIcon = _hicon;

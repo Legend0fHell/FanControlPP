@@ -163,7 +163,6 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="FanControl++.ico" />
-    <Image Include="small.ico" />
   </ItemGroup>
   <ItemGroup>
     <_EmbedManagedResourceFile Include="AsusWinIO64.dll">

@@ -1,4 +1,4 @@
-// FanControl++.cpp : Defines the entry point for the application.
+﻿// FanControl++.cpp : Defines the entry point for the application.
 //
 
 #include "framework.h"
@@ -22,13 +22,14 @@ bool startup = 0;
 
 // dirty trick
 bool thread_term = false;
+bool is_about_opened = false;
 HWND current_settings_hwnd = 0;
 
 // Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 HWND                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
-INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
+HRESULT CALLBACK	About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam, LONG_PTR lpdata);
 INT_PTR CALLBACK    Settings(HWND, UINT, WPARAM, LPARAM);
 
 //
@@ -191,6 +192,46 @@ static BOOL MainThread(HWND hWnd) noexcept(false) {
 	return Cleanup(hWnd, nid);
 }
 
+static void ShowAboutMessage(HWND hWnd) {
+	if (is_about_opened) return;
+	is_about_opened = true;
+	TASKDIALOGCONFIG tdc = { 0 };
+	LPCWSTR str_title = L"About";
+	WCHAR str_content[512];
+	std::wstring tmp_str;
+	std::wstring version = L"1.0";
+#ifdef _DEBUG
+	version += L" (Debug), ";
+#else 
+	version += L" (Release), ";
+#endif
+	version += (sizeof(void*) == 8 ? L"x64" : L"x86");
+	version += L" Unicode.";
+	tmp_str = L"A lightweight fan controller for ASUS laptops.\r\n"
+		+ _ts(L"Version: ") + version + L"\r\n\r\n"
+		+ _ts(L"(c) 2024 Phạm Nhật Quang (Legend0fHell).\r\nAll Rights Reserved.\r\n\r\n")
+		+ _ts(L"<a href=\"https://github.com/Legend0fHell\">github.com/Legend0fHell</a>\r\n");
+
+	wcscpy_s(str_content, tmp_str.c_str());
+	tdc.cbSize = sizeof(tdc);
+	tdc.dwFlags = TDF_ENABLE_HYPERLINKS | TDF_ALLOW_DIALOG_CANCELLATION | TDF_EXPAND_FOOTER_AREA | TDF_SIZE_TO_CONTENT;
+	tdc.hwndParent = hWnd;
+	tdc.hInstance = hInst;
+	tdc.dwCommonButtons = TDCBF_CLOSE_BUTTON;
+	tdc.pszFooterIcon = TD_INFORMATION_ICON;
+	tdc.pszWindowTitle = str_title;
+	tdc.pszMainInstruction = (LPWSTR)IDS_APP_TITLE;
+	tdc.pszContent = str_content;
+	tdc.pfCallback = &About;
+	tdc.lpCallbackData = MAKELONG(0, TRUE); // on top
+	tdc.pszMainIcon = MAKEINTRESOURCE(IDI_FANCONTROL);
+	tdc.pszFooter = L"FanControl++ is free software, and licensed under the <a href=\"https://www.gnu.org/licenses/gpl-3.0.en.html\">GNU General Public License 3</a>.\r\n"\
+		L"Included AsusWinIO64.dll is licensed by (c) ASUSTek COMPUTER INC. and used in compliance with it's EULA.\r\n";
+
+	TaskDialogIndirect(&tdc, NULL, NULL, NULL);
+	is_about_opened = false;
+}
+
 //
 //  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
 //
@@ -274,7 +315,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			DestroyWindow(hWnd);		// Destroy Window
 			break;
 		case ID_POPUP_ABOUT:			// Open about box
-			DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+			ShowAboutMessage(hWnd);
 			break;
 		case ID_POPUP_SETTINGS:
 			if(current_settings_hwnd == 0) DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGSBOX), hWnd, Settings);
@@ -309,23 +350,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 }
 
 // Message handler for about box.
-INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+HRESULT CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam, LONG_PTR lpdata)
 {
-	UNREFERENCED_PARAMETER(lParam);
-	switch (message)
-	{
-	case WM_INITDIALOG:
-		return (INT_PTR)TRUE;
-
-	case WM_COMMAND:
-		if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL)
-		{
-			EndDialog(hDlg, LOWORD(wParam));
-			return (INT_PTR)TRUE;
-		}
-		break;
+	if (message == TDN_HYPERLINK_CLICKED) {
+		ShellExecuteW(NULL, L"open", (LPCWSTR)lParam, NULL, NULL, SW_SHOWNORMAL);
 	}
-	return (INT_PTR)FALSE;
+	return S_OK;
 }
 
 // Message handler for settings box.
