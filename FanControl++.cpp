@@ -170,6 +170,7 @@ static BOOL Cleanup(HWND& hWnd, NOTIFYICONDATAW& nid) {
 }
 
 static BOOL MainThread(HWND hWnd) noexcept(false) {
+	ULONGLONG last_update_thread = 0;
 	while (!thread_term) {
 		if (asus_control.error_occured) {
 			_dErr(_ts(L"[Thread] Error occured!"));
@@ -186,7 +187,15 @@ static BOOL MainThread(HWND hWnd) noexcept(false) {
 		_dInfo(_ts(L"[Thread] Temp: ") + _ts(temp) + _ts(L" | Percent: ") + _ts(trunc(asus_control.current_fan_percent)) + _ts(L" | Mode: ") + _ts(current_mode - ID_POPUP_ECO));
 
 		UpdateTray(hWnd, nid, asus_control, current_mode);
-		Sleep(update_interval - 500);
+
+		if (thread_term) break;
+
+		SYSTEMTIME st;
+		GetSystemTime(&st);
+		ULONGLONG time_taken = convert_to_ull(st) - last_update_thread;
+		if (time_taken < update_interval) {
+			Sleep(update_interval - time_taken); // sleep until next update
+		}
 	}
 
 	return Cleanup(hWnd, nid);
@@ -208,7 +217,7 @@ static void ShowAboutMessage(HWND hWnd) {
 	version += (sizeof(void*) == 8 ? L"x64" : L"x86");
 	version += L" Unicode.";
 	tmp_str = L"A lightweight fan controller for ASUS laptops.\r\n"
-		+ _ts(L"Version: ") + version + L"\r\n\r\n"
+		+ _ts(L"Version ") + version + L"\r\n\r\n"
 		+ _ts(L"(c) 2024 Phạm Nhật Quang (Legend0fHell).\r\nAll Rights Reserved.\r\n\r\n")
 		+ _ts(L"<a href=\"https://github.com/Legend0fHell\">github.com/Legend0fHell</a>\r\n");
 
@@ -470,6 +479,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 {
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
+
+	// before doing anything, set the working directory to the executable's directory
+	wchar_t path[MAX_PATH];
+	GetModuleFileNameW(NULL, path, MAX_PATH);
+	std::wstring tmp(path);
+	tmp = tmp.substr(0, tmp.find_last_of(L"\\/"));
+	SetCurrentDirectoryW(tmp.c_str());
+	_dInfo(tmp);
 
 	// Initialize global strings
 	LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);

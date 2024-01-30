@@ -50,7 +50,12 @@ int AsusDLL::get_fan_count()
 	if (fan_count != -1) return fan_count;
 	typedef int (*FanCount)();
 	FanCount fan_count = (FanCount)GetProcAddress(asus_dll, "HealthyTable_FanCounts");
-	return (int)fan_count();
+	int fnc = (int)fan_count();
+	if (fnc < 1) {
+		MessageBox(NULL, _ts(L"Cannot find any fan!").c_str(), _ts(L"Error").c_str(), MB_ICONERROR | MB_OK);
+		error_occured = true;
+	}
+	return fnc;
 }
 
 bool AsusDLL::set_fan_test_mode(char mode)
