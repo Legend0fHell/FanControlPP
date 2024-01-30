@@ -124,7 +124,7 @@ bool AsusDLL::set_fan_speed(int percent)
 	int fan_cnt = AsusDLL::get_fan_count();
 	for (byte fanIdx = 0; fanIdx < fan_cnt; ++fanIdx) {
 		if (!AsusDLL::set_fan_speed_idx(value, fanIdx)) return failed();
-		Sleep(100);
+		Sleep(50);
 	}
 	return success(_ts(L"Set fan speed to ") + _ts(value), true);
 }
@@ -166,10 +166,10 @@ std::vector<int> AsusDLL::get_fan_speed()
 		int val = AsusDLL::get_fan_speed_idx(fanIdx);
 		if (val == -1) break;
 		fan_speed_list.push_back(val);
-		Sleep(100);
+		Sleep(50);
 	}
 
-	last_update_thermal = convert_to_ull(st);
+	last_update_fan_speed = convert_to_ull(st);
 	return fan_speed_list;
 }
 
