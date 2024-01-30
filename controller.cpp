@@ -63,9 +63,18 @@ bool AsusDLL::set_fan_test_mode(char mode)
 	if (!init_status) return failed();
 	if (current_fan_test_mode == mode) return success();
 	if (mode == 0x00) current_fan_percent = 0;
+	int fan_cnt = AsusDLL::get_fan_count();
+
 	typedef void (*FanTestMode)(char value);
-	FanTestMode set_fan_test_mode = (FanTestMode)GetProcAddress(asus_dll, "HealthyTable_SetFanTestMode");
-	set_fan_test_mode(mode);
+	typedef void (*FanIdx)(byte fanIndex);
+	for (byte fanIdx = 0; fanIdx < fan_cnt; ++fanIdx) {
+		FanIdx set_fan_idx = (FanIdx)GetProcAddress(asus_dll, "HealthyTable_SetFanIndex");
+		set_fan_idx(fanIdx);
+		FanTestMode set_fan_test_mode = (FanTestMode)GetProcAddress(asus_dll, "HealthyTable_SetFanTestMode");
+		set_fan_test_mode(mode);
+		Sleep(50);
+	}
+
 	current_fan_test_mode = mode;
 	return success(_ts(L"[ASUS Service] Fan test mode changed to ") + _ts(mode), true);
 }
