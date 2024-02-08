@@ -1,3 +1,5 @@
+// FanControl++
+// (c) 2024 Pham Nhat Quang (Legend0fHell)
 #include "tray.h"
 
 HDC _hdc, _hdc_mask;
@@ -260,7 +262,7 @@ BOOL UpdateTray(HWND hWnd, NOTIFYICONDATAW & nid, AsusDLL & asus_control, int& c
 
 	std::wstring tool_tip = _ts(L"Currently ") + (asus_control.current_fan_test_mode ? _ts(L"enabled!") : _ts(L"disabled!"));
 	tool_tip += _ts(L"\nCPU: ") + _ts(asus_control.current_cpu_thermal) + _ts(L"°C | GPU: ") + _ts(asus_control.current_gpu_thermal) + _ts(L"°C\n")
-		+ _ts(L"Speed: ") + _ts(asus_control.get_fan_speed()) + _ts(L"RPM (") + _ts(asus_control.current_fan_percent) + _ts(L"%)");
+		+ _ts(L"Fan: ") + _ts(asus_control.get_fan_speed()) + _ts(L"RPM (") + _ts(asus_control.current_fan_percent) + _ts(L"%)");
 	ZeroMemory(&nid.szTip, sizeof(nid.szTip)); // clear the string
 	wmemcpy_s(nid.szTip, 128, tool_tip.c_str(), tool_tip.length());
 

@@ -1,3 +1,5 @@
+// FanControl++
+// (c) 2024 Pham Nhat Quang (Legend0fHell)
 // header.h : include file for standard system include files,
 // or project specific include files
 //

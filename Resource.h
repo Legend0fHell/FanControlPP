@@ -21,6 +21,8 @@
 #define IDC_CHECK_STARTUP               1006
 #define IDC_BUTTON_CANCEL               1007
 #define IDC_BUTTON_OK                   1008
+#define IDC_TEXT_INFO                   1013
+#define IDC_STATIC_INFO                 1013
 #define ID_POPUP_ECO                    32772
 #define ID_POPUP_BALANCED               32773
 #define ID_POPUP_TURBO                  32774
@@ -39,7 +41,7 @@
 #define _APS_NO_MFC                     1
 #define _APS_NEXT_RESOURCE_VALUE        129
 #define _APS_NEXT_COMMAND_VALUE         32787
-#define _APS_NEXT_CONTROL_VALUE         1013
+#define _APS_NEXT_CONTROL_VALUE         1014
 #define _APS_NEXT_SYMED_VALUE           110
 #endif
 #endif

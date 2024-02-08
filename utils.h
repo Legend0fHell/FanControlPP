@@ -1,3 +1,5 @@
+// FanControl++
+// (c) 2024 Pham Nhat Quang (Legend0fHell)
 #pragma once
 #include <Windows.h>
 #include <string>

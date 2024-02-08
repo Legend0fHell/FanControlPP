@@ -1,4 +1,6 @@
-﻿// FanControl++.cpp : Defines the entry point for the application.
+﻿// FanControl++
+// (c) 2024 Pham Nhat Quang (Legend0fHell)
+// FanControl++.cpp : Defines the entry point for the application.
 //
 
 #include "framework.h"
@@ -178,8 +180,10 @@ static BOOL MainThread(HWND hWnd) noexcept(false) {
 		}
 
 		int temp = asus_control.get_thermal();
+		update_average_temperature(temp);
+
 		if (toggle_change_fan_speed) {
-			int perc = calc_fan_percent(temp, current_mode);
+			int perc = calc_fan_percent(current_mode);
 			if (perc < 0) _dErr(_ts(L"[Thread] Invalid fan percent!"));
 			else asus_control.set_fan_speed(perc);
 		}
@@ -189,6 +193,12 @@ static BOOL MainThread(HWND hWnd) noexcept(false) {
 		UpdateTray(hWnd, nid, asus_control, current_mode);
 
 		if (thread_term) break;
+
+		if (current_settings_hwnd) {
+			std::wstring tool_tip = _ts(L"CPU: ") + _ts(asus_control.current_cpu_thermal) + _ts(L"°C | GPU: ") + _ts(asus_control.current_gpu_thermal) + _ts(L"°C\n")
+				+ _ts(L"Fan: ") + _ts(asus_control.get_fan_speed()) + _ts(L"RPM (") + _ts(asus_control.current_fan_percent) + _ts(L"%)");
+			SetWindowTextW(GetDlgItem(current_settings_hwnd, IDC_STATIC_INFO), tool_tip.c_str());
+		}
 
 		SYSTEMTIME st;
 		GetSystemTime(&st);
@@ -208,10 +218,10 @@ static void ShowAboutMessage(HWND hWnd) {
 	LPCWSTR str_title = L"About";
 	WCHAR str_content[512];
 	std::wstring tmp_str;
-	std::wstring version = L"1.0";
+	std::wstring version = CURRENT_VERSION;
 #ifdef _DEBUG
 	version += L" (Debug), ";
-#else 
+#else
 	version += L" (Release), ";
 #endif
 	version += (sizeof(void*) == 8 ? L"x64" : L"x86");
@@ -327,13 +337,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			ShowAboutMessage(hWnd);
 			break;
 		case ID_POPUP_SETTINGS:
-			if(current_settings_hwnd == 0) DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGSBOX), hWnd, Settings);
+			if (current_settings_hwnd == 0) DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGSBOX), hWnd, Settings);
 			else {
 				SetForegroundWindow(current_settings_hwnd); // focus on the window
 			}
 			break;
 		case ID_POPUP_ENABLE:			// Toggle Enable
 			toggle_change_fan_speed = !toggle_change_fan_speed;
+			settings.sections[L"General"][L"Enable"] = _ts(toggle_change_fan_speed);
+			write_settings(settings);
 			asus_control.set_fan_test_mode(toggle_change_fan_speed ? 0x01 : 0x00);
 			break;
 		case ID_POPUP_STARTUP:			// Toggle Startup
@@ -370,7 +382,6 @@ HRESULT CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam, LO
 // Message handler for settings box.
 INT_PTR CALLBACK Settings(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	
 	UNREFERENCED_PARAMETER(lParam);
 	switch (message)
 	{
@@ -435,20 +446,23 @@ INT_PTR CALLBACK Settings(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 			settings.sections[L"Curves"][L"FanBalanced"] = _ts(tmp_balanced);
 			settings.sections[L"Curves"][L"FanTurbo"] = _ts(tmp_turbo);
 
-			// update enable
-			toggle_change_fan_speed = IsDlgButtonChecked(hDlg, IDC_CHECK_ENABLE);
-			asus_control.set_fan_test_mode(toggle_change_fan_speed ? 0x01 : 0x00);
-
-			// update startup
+			bool tmp_enable = IsDlgButtonChecked(hDlg, IDC_CHECK_ENABLE);
 			bool tmp_startup = IsDlgButtonChecked(hDlg, IDC_CHECK_STARTUP);
+
+			// close dialog
+			EndDialog(hDlg, LOWORD(wParam));
+
 			if (tmp_startup != startup) {
 				startup = tmp_startup;
 				if (!ChangeStartupBehavior(startup)) startup = !startup; // revert if failed
 				settings.sections[L"General"][L"Startup"] = _ts(startup);
 			}
 
-			// close dialog
-			EndDialog(hDlg, LOWORD(wParam));
+			if (tmp_enable != toggle_change_fan_speed) {
+				toggle_change_fan_speed = tmp_enable;
+				asus_control.set_fan_test_mode(toggle_change_fan_speed ? 0x01 : 0x00);
+				settings.sections[L"General"][L"Enable"] = _ts(toggle_change_fan_speed);
+			}
 
 			// write settings
 			write_settings(settings);
@@ -504,13 +518,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	read_settings(settings);
 	inipp::extract(settings.sections[L"General"][L"UpdateInterval"], update_interval);
 	inipp::extract(settings.sections[L"General"][L"CurrentMode"], current_mode);
-	int tmp_startup = 0;
-	inipp::extract(settings.sections[L"General"][L"Startup"], tmp_startup);
-	startup = tmp_startup;
+	int tmp_re = 0;
+	inipp::extract(settings.sections[L"General"][L"Startup"], tmp_re);
+	startup = tmp_re;
 	ChangeStartupBehavior(startup);
 
-	bool toggle_change_fan_speed = TRUE;
-	asus_control.set_fan_test_mode(0x01);
+	inipp::extract(settings.sections[L"General"][L"Enable"], tmp_re);
+	toggle_change_fan_speed = tmp_re;
+	asus_control.set_fan_test_mode(tmp_re ? 0x01 : 0x00);
 
 	// Display tray icon
 	if (!InitTray(hInst, hWnd, nid)) {

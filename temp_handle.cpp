@@ -1,3 +1,5 @@
+// FanControl++
+// (c) 2024 Pham Nhat Quang (Legend0fHell)
 #include "temp_handle.h"
 
 std::vector<std::pair<ULONG, ULONG>> convert_fan_curve(std::wstring& str)
@@ -69,8 +71,35 @@ bool validator(wchar_t* str)
 	return validator(tmp_str);
 }
 
-ULONG calc_fan_percent(ULONG temperature, int mode)
+std::queue<ULONG> temp_history;
+std::queue<ULONGLONG> temp_update_history;
+ULONG total_temp = 0;
+
+void update_average_temperature(ULONG temperature) {
+	SYSTEMTIME st;
+	GetSystemTime(&st);
+
+	ULONGLONG current_time = convert_to_ull(st);
+
+	// only keep temperature in the last 8s
+	while (!temp_history.empty() && current_time - temp_update_history.front() > 8000) {
+		total_temp -= temp_history.front();
+		temp_history.pop();
+		temp_update_history.pop();
+	}
+	total_temp += temperature;
+	temp_history.push(temperature);
+	temp_update_history.push(current_time);
+}
+
+float get_average_temperature() {
+	if (temp_history.empty()) return 0;
+	return (1.0f * total_temp) / temp_history.size();
+}
+
+ULONG calc_fan_percent(int mode)
 {
+	float temperature = get_average_temperature();
 	inipp::Ini<wchar_t> settings;
 	read_settings(settings);
 	std::wstring fan_str;
@@ -113,5 +142,5 @@ ULONG calc_fan_percent(ULONG temperature, int mode)
 	ULONG percent_gap = fan_curve[rgt_idx].second - fan_curve[lft_idx].second;
 	ULONG temp_gap = fan_curve[rgt_idx].first - fan_curve[lft_idx].first;
 	if (temp_gap == 0UL) return fan_curve[lft_idx].second;
-	return fan_curve[lft_idx].second + percent_gap * (temperature - fan_curve[lft_idx].first) / temp_gap;
+	return fan_curve[lft_idx].second + ((temperature - 1.0f * fan_curve[lft_idx].first) * percent_gap) / (1.0f * temp_gap);
 }

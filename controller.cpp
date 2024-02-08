@@ -1,3 +1,5 @@
+// FanControl++
+// (c) 2024 Pham Nhat Quang (Legend0fHell)
 #include "controller.h"
 
 bool AsusDLL::failed(const std::wstring reason = _ts(L"Failed"), bool shown = true) {

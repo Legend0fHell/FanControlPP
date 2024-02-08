@@ -1,3 +1,5 @@
+// FanControl++
+// (c) 2024 Pham Nhat Quang (Legend0fHell)
 #pragma once
 
 // // Including SDKDDKVer.h defines the highest available Windows platform.
