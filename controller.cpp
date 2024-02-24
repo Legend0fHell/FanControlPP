@@ -182,7 +182,7 @@ ULONG AsusDLL::get_thermal()
 	TherGPU thermal_gpu = (TherGPU)GetProcAddress(asus_dll, "Thermal_Read_GpuTS1L_Temperature");
 	current_cpu_thermal = thermal_cpu();
 	current_gpu_thermal = thermal_gpu();
-	current_combined_thermal = max(current_cpu_thermal, current_gpu_thermal*5/4); // GPU overheats faster than CPU, but not too much
+	current_combined_thermal = max(current_cpu_thermal, current_gpu_thermal);
 	last_update_thermal = convert_to_ull(st);
 
 	return current_combined_thermal;
