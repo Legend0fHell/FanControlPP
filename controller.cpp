@@ -74,7 +74,6 @@ bool AsusDLL::set_fan_test_mode(char mode)
 		set_fan_idx(fanIdx);
 		FanTestMode set_fan_test_mode = (FanTestMode)GetProcAddress(asus_dll, "HealthyTable_SetFanTestMode");
 		set_fan_test_mode(mode);
-		Sleep(50);
 	}
 
 	current_fan_test_mode = mode;
@@ -103,7 +102,7 @@ bool AsusDLL::set_fan_speed_idx(byte value, byte fanIdx = 0)
 	return success(_ts(L"Set fan speed #") + _ts(fanIdx) + _ts(L" to ") + _ts(value), false);
 }
 
-bool AsusDLL::set_fan_speed(int percent)
+bool AsusDLL::set_fan_speed(float percent)
 {
 	if (!init_status) return failed();
 
@@ -111,31 +110,15 @@ bool AsusDLL::set_fan_speed(int percent)
 	if (abs(AsusDLL::current_fan_percent - percent) <= 1) return success();
 
 	// set to 0 if the percent is too small
-	if (percent < 20) percent = 0;
+	if (percent < 10) percent = 0;
 
-	inipp::Ini<wchar_t> settings;
-	read_settings(settings);
-	int update_interval = 2000;
-	inipp::extract(settings.sections[L"General"][L"UpdateInterval"], update_interval);
-	settings.clear();
-
-	// soften the curve e.g. not change the speed too fast
-	float delta = 5.0f * update_interval / 1000; // not faster than 5% per second
-
-	if (abs(AsusDLL::current_fan_percent - percent) >= delta) { // if the delta is big enough, change it
-		if (AsusDLL::current_fan_percent < percent) AsusDLL::current_fan_percent += delta;
-		else AsusDLL::current_fan_percent -= delta;
-	}
-	else { // if the delta is too small, just set it to the target
-		AsusDLL::current_fan_percent = percent;
-	}
+	AsusDLL::current_fan_percent = percent;
 
 	byte value = max((byte)1, (byte)(AsusDLL::current_fan_percent / 100.0f * 255));
 
 	int fan_cnt = AsusDLL::get_fan_count();
 	for (byte fanIdx = 0; fanIdx < fan_cnt; ++fanIdx) {
 		if (!AsusDLL::set_fan_speed_idx(value, fanIdx)) return failed();
-		Sleep(50);
 	}
 	return success(_ts(L"Set fan speed to ") + _ts(value), true);
 }
@@ -177,7 +160,6 @@ std::vector<int> AsusDLL::get_fan_speed()
 		int val = AsusDLL::get_fan_speed_idx(fanIdx);
 		if (val == -1) break;
 		fan_speed_list.push_back(val);
-		Sleep(50);
 	}
 
 	last_update_fan_speed = convert_to_ull(st);
@@ -200,7 +182,7 @@ ULONG AsusDLL::get_thermal()
 	TherGPU thermal_gpu = (TherGPU)GetProcAddress(asus_dll, "Thermal_Read_GpuTS1L_Temperature");
 	current_cpu_thermal = thermal_cpu();
 	current_gpu_thermal = thermal_gpu();
-	current_combined_thermal = max(current_cpu_thermal, current_gpu_thermal);
+	current_combined_thermal = max(current_cpu_thermal, current_gpu_thermal*5/4); // GPU overheats faster than CPU, but not too much
 	last_update_thermal = convert_to_ull(st);
 
 	return current_combined_thermal;

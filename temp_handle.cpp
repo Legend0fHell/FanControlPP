@@ -97,7 +97,7 @@ float get_average_temperature() {
 	return (1.0f * total_temp) / temp_history.size();
 }
 
-ULONG calc_fan_percent(int mode)
+float calc_fan_percent(int mode)
 {
 	float temperature = get_average_temperature();
 	inipp::Ini<wchar_t> settings;

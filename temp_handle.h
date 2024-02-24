@@ -6,7 +6,7 @@
 #include "settings.h"
 #include <queue>
 
-ULONG calc_fan_percent(int mode);
+float calc_fan_percent(int mode);
 void update_average_temperature(ULONG temperature);
 bool validator(std::wstring& str);
 bool validator(wchar_t* str);

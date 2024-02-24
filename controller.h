@@ -29,7 +29,7 @@ private:
 public:
 	AsusDLL();
 	~AsusDLL() noexcept(false);
-	bool set_fan_speed(int percent);
+	bool set_fan_speed(float percent);
 	bool set_fan_test_mode(char mode);
 	int get_fan_speed_idx(byte fanIdx);
 	std::vector<int> get_fan_speed();

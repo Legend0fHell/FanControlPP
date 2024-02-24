@@ -183,7 +183,7 @@ static BOOL MainThread(HWND hWnd) noexcept(false) {
 		update_average_temperature(temp);
 
 		if (toggle_change_fan_speed) {
-			int perc = calc_fan_percent(current_mode);
+			float perc = calc_fan_percent(current_mode);
 			if (perc < 0) _dErr(_ts(L"[Thread] Invalid fan percent!"));
 			else asus_control.set_fan_speed(perc);
 		}
