@@ -4,18 +4,16 @@
 
 #ifdef _DEBUG
 void _dInfo(const wchar_t str[]) {
-	const std::wstring new_str(str);
-	OutputDebugString((L"[Info] " + new_str + L"\n").c_str());
+	_dInfo(std::wstring(str));
 }
 void _dInfo(const std::wstring str) {
-	OutputDebugString((L"[Info] " + str + L"\n").c_str());
+	OutputDebugString((_time_str() + L" [Info] " + str + L"\n").c_str());
 }
 void _dErr(const wchar_t str[]) {
-	const std::wstring new_str(str);
-	OutputDebugString((L"[ERROR] " + new_str + L"\n").c_str());
+	_dErr(std::wstring(str));
 }
 void _dErr(const std::wstring str) {
-	OutputDebugString((L"[ERROR] " + str + L"\n").c_str());
+	OutputDebugString((_time_str() + L" [ERROR] " + str + L"\n").c_str());
 }
 #else
 void _dInfo(const wchar_t str[]) {}
@@ -55,4 +53,15 @@ ULONGLONG convert_to_ull(SYSTEMTIME& st)
 	// convert ul to milliseconds
 	ul.QuadPart /= 10000;
 	return ul.QuadPart;
+}
+
+std::wstring _time_str(SYSTEMTIME st) {
+	if (st.wYear == 0) {
+		// If no time has been transmitted, we use the current time
+		GetSystemTime(&st);
+	}
+
+	wchar_t buffer[24];
+	swprintf(buffer, 24, L"%04d-%02d-%02d %02d:%02d:%02d.%03d", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	return std::wstring(buffer);
 }

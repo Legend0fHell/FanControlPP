@@ -17,6 +17,7 @@ std::wstring _ts(const wchar_t str[]);
 std::wstring _ts(const std::vector<int>& vt);
 
 ULONGLONG convert_to_ull(SYSTEMTIME& st);
+std::wstring _time_str(SYSTEMTIME st = {});
 
 #define	WM_USER_SHELLICON WM_USER + 1
 #define WM_TASKBAR_CREATE RegisterWindowMessage(_T("TaskbarCreated"))
