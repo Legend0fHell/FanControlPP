@@ -172,7 +172,7 @@ static BOOL Cleanup(HWND& hWnd, NOTIFYICONDATAW& nid) {
 }
 
 static BOOL MainThread(HWND hWnd) noexcept(false) {
-	ULONGLONG last_update_thread = 0;
+	ULONGLONG next_time = GetTickCount64();
 	while (!thread_term) {
 		if (asus_control.error_occured) {
 			_dErr(_ts(L"[Thread] Error occured!"));
@@ -196,15 +196,14 @@ static BOOL MainThread(HWND hWnd) noexcept(false) {
 
 		if (current_settings_hwnd) {
 			std::wstring tool_tip = _ts(L"CPU: ") + _ts(asus_control.current_cpu_thermal) + _ts(L"°C | GPU: ") + _ts(asus_control.current_gpu_thermal) + _ts(L"°C\n")
-				+ _ts(L"Fan: ") + _ts(asus_control.get_fan_speed()) + _ts(L"RPM (") + _ts(asus_control.current_fan_percent) + _ts(L"%)");
+				+ _ts(L"Fan: ") + _ts(asus_control.get_fan_speed()) + _ts(L" RPM (") + _ts(asus_control.current_fan_percent) + _ts(L"%)");
 			SetWindowTextW(GetDlgItem(current_settings_hwnd, IDC_STATIC_INFO), tool_tip.c_str());
 		}
 
-		SYSTEMTIME st;
-		GetSystemTime(&st);
-		ULONGLONG time_taken = convert_to_ull(st) - last_update_thread;
-		if (time_taken < update_interval) {
-			Sleep(update_interval - time_taken); // sleep until next update
+		next_time += update_interval;
+		LONGLONG sleep_time = next_time - GetTickCount64();
+		if (sleep_time > 0) {
+			Sleep(sleep_time); // sleep until next update
 		}
 	}
 
