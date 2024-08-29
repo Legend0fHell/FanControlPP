@@ -13,4 +13,4 @@
 
 #include "settings.h"
 
-const std::wstring CURRENT_VERSION = L"1.1.1";
+const std::wstring CURRENT_VERSION = L"1.2.0";
