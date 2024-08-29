@@ -41,6 +41,48 @@ static bool service_running(std::wstring token)
 	return (status.dwCurrentState == SERVICE_RUNNING) ? (true) : (false);
 }
 
+static bool service_checker() {
+	if (service_running(L"ASUSSystemAnalysis")) return TRUE;
+	_dErr(_ts(L"[Service Control] Service not running yet!!"));
+	bool success = false;
+
+	if (IsUserAnAdmin()) {
+		// If user is admin, try to start the service using OpenSCManager
+
+		SC_HANDLE scm = OpenSCManager(NULL, SERVICES_ACTIVE_DATABASE, SC_MANAGER_CONNECT);
+		if (scm != NULL) {
+			SC_HANDLE hService = OpenService(scm, L"ASUSSystemAnalysis", SERVICE_CHANGE_CONFIG | SERVICE_START);
+			if (hService != NULL) {
+				bool stService = StartService(hService, 0, NULL);
+				if (!stService) {
+					ChangeServiceConfig(hService, SERVICE_NO_CHANGE, SERVICE_DEMAND_START, SERVICE_NO_CHANGE, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+					_dInfo(L"[Service Control] Changed to Manual");
+					stService = StartService(hService, 0, NULL);
+					if (stService) {
+						MessageBox(NULL,
+							_ts(L"ASUSSystemAnalysis Service *was* not running.\nSince you started the program with Administrator rights, the service was started by the program.\nFrom now on, it will automatically be started when you use this program.").c_str(),
+							_ts(L"Service notice!").c_str(), MB_ICONINFORMATION | MB_OK);
+					}
+				}
+
+				success = stService;
+
+				CloseServiceHandle(hService);
+			}
+			CloseServiceHandle(scm);
+
+		}
+
+		if (!success) {
+			MessageBox(NULL, _ts(L"ASUSSystemAnalysis Service is not running!\nPlease start the service manually!").c_str(), _ts(L"Error").c_str(), MB_ICONERROR | MB_OK);
+		}
+	}
+	else {
+		MessageBox(NULL, _ts(L"ASUSSystemAnalysis Service is not running!\nPlease start the service first, or run this program again with Administrator rights.").c_str(), _ts(L"Error").c_str(), MB_ICONERROR | MB_OK);
+	}
+	return success;
+}
+
 AsusDLL::AsusDLL() {
 	_dInfo(L"Constructor called");
 	if (asus_dll == NULL) {
@@ -50,51 +92,11 @@ AsusDLL::AsusDLL() {
 		return;
 	}
 
-	if (!service_running(L"ASUSSystemAnalysis")) {
-		failed(_ts(L"[Service Control] Service not running yet!!"));
-		bool success = false;
-
-		if (IsUserAnAdmin()) {
-			// If user is admin, try to start the service using OpenSCManager
-			
-			SC_HANDLE scm = OpenSCManager(NULL, SERVICES_ACTIVE_DATABASE, SC_MANAGER_CONNECT);
-			if (scm != NULL) {
-				SC_HANDLE hService = OpenService(scm, L"ASUSSystemAnalysis", SERVICE_CHANGE_CONFIG | SERVICE_START);
-				if (hService != NULL) {
-					bool stService = StartService(hService, 0, NULL);
-					if (!stService) {
-						ChangeServiceConfig(hService, SERVICE_NO_CHANGE, SERVICE_DEMAND_START, SERVICE_NO_CHANGE, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-						_dInfo(L"[Service Control] Changed to Manual");
-						stService = StartService(hService, 0, NULL);
-						if (stService) {
-							MessageBox(NULL, 
-								_ts(L"ASUSSystemAnalysis Service *was* not running.\nSince you started the program with Administrator rights, the service was started by the program.\nFrom now on, it will automatically be started when you use this program.").c_str(),
-								_ts(L"Service notice!").c_str(), MB_ICONINFORMATION | MB_OK);
-						}
-					}
-
-					success = stService;
-
-					CloseServiceHandle(hService);
-				}
-				CloseServiceHandle(scm);
-				
-			}
-
-			if (!success) {
-				MessageBox(NULL, _ts(L"ASUSSystemAnalysis Service is not running!\nPlease start the service manually!").c_str(), _ts(L"Error").c_str(), MB_ICONERROR | MB_OK);
-			}
-		}
-		else {
-			MessageBox(NULL, _ts(L"ASUSSystemAnalysis Service is not running!\nPlease start the service first, or run this program again with Administrator rights.").c_str(), _ts(L"Error").c_str(), MB_ICONERROR | MB_OK);
-		}
-		if (!success) {
-			_dErr(L"[Service Control] Service failed to start!");
-			error_occured = true;
-			return;
-		}
+	if (!service_checker()) {
+		_dErr(L"[Service Control] Service failed to start!");
+		error_occured = true;
+		return;
 	}
-	_dInfo(L"[Service Control] Service started!");
 
 	typedef void (*Cons)();
 	Cons initialize = (Cons)GetProcAddress(asus_dll, "InitializeWinIo");

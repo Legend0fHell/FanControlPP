@@ -19,6 +19,16 @@ inipp::Ini<wchar_t> settings;
 NOTIFYICONDATAW nid = {};
 bool toggle_change_fan_speed = true;
 int current_mode = ID_POPUP_BALANCED;
+
+bool toggle_adaptive_mode = false;
+int current_ac_mode = ID_POPUP_BALANCED;
+int current_dc_mode = ID_POPUP_ECO;
+
+PWRStatus current_power_mode = PWRStatus::Error;
+PWRStatus last_power_mode = PWRStatus::Error;
+
+bool toggle_smooth_temp = true;
+
 int update_interval = 2000;
 bool startup = 0;
 
@@ -181,6 +191,18 @@ static BOOL MainThread(HWND hWnd) noexcept(false) {
 
 		int temp = asus_control.get_thermal();
 		update_average_temperature(temp);
+
+		if (toggle_adaptive_mode) {
+			current_power_mode = asus_control.get_power_mode();
+			if (current_power_mode != last_power_mode) {
+				last_power_mode = current_power_mode;
+				if (current_power_mode == PWRStatus::AC) current_mode = current_ac_mode;
+				else if (current_power_mode == PWRStatus::DC) current_mode = current_dc_mode;
+
+				settings.sections[L"General"][L"CurrentMode"] = _ts(current_mode);
+				write_settings(settings);
+			}
+		}
 
 		if (toggle_change_fan_speed) {
 			float perc = calc_fan_percent(current_mode);
@@ -401,11 +423,24 @@ INT_PTR CALLBACK Settings(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
 		CheckDlgButton(hDlg, IDC_CHECK_ENABLE, toggle_change_fan_speed);
 		CheckDlgButton(hDlg, IDC_CHECK_STARTUP, startup);
+		CheckDlgButton(hDlg, IDC_CHECK_SMOOTHTEMP, toggle_smooth_temp);
+
+		CheckDlgButton(hDlg, IDC_CHECK_ADAPTIVEMODE, toggle_adaptive_mode);
 
 		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Eco");
 		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Balanced");
 		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Turbo");
 		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_MODE), CB_SETCURSEL, static_cast<WPARAM>(current_mode - ID_POPUP_ECO), 0);
+
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_AC_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Eco");
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_AC_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Balanced");
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_AC_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Turbo");
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_AC_MODE), CB_SETCURSEL, static_cast<WPARAM>(current_ac_mode - ID_POPUP_ECO), 0);
+
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_DC_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Eco");
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_DC_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Balanced");
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_DC_MODE), CB_INSERTSTRING, -1, (LPARAM)L"Turbo");
+		SendMessageW(GetDlgItem(hDlg, IDC_COMBO_DC_MODE), CB_SETCURSEL, static_cast<WPARAM>(current_dc_mode - ID_POPUP_ECO), 0);
 
 		return (INT_PTR)TRUE;
 	}
@@ -413,6 +448,7 @@ INT_PTR CALLBACK Settings(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 		switch (LOWORD(wParam))
 		{
 		case IDC_BUTTON_OK:
+		case IDC_BUTTON_APPLY:
 		{
 			// read settings
 			read_settings(settings);
@@ -429,6 +465,17 @@ INT_PTR CALLBACK Settings(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 			// update current mode
 			current_mode = SendMessageW(GetDlgItem(hDlg, IDC_COMBO_MODE), CB_GETCURSEL, 0, 0) + ID_POPUP_ECO;
 			settings.sections[L"General"][L"CurrentMode"] = _ts(current_mode);
+
+			toggle_smooth_temp = IsDlgButtonChecked(hDlg, IDC_CHECK_SMOOTHTEMP);
+			settings.sections[L"General"][L"SmoothTempEnable"] = _ts(toggle_smooth_temp);
+
+			// update adaptive mode
+			toggle_adaptive_mode = IsDlgButtonChecked(hDlg, IDC_CHECK_ADAPTIVEMODE);
+			settings.sections[L"General"][L"AdaptiveModeEnable"] = _ts(toggle_adaptive_mode);
+			current_ac_mode = SendMessageW(GetDlgItem(hDlg, IDC_COMBO_AC_MODE), CB_GETCURSEL, 0, 0) + ID_POPUP_ECO;
+			settings.sections[L"General"][L"AdaptiveModeAC"] = _ts(current_ac_mode);
+			current_dc_mode = SendMessageW(GetDlgItem(hDlg, IDC_COMBO_DC_MODE), CB_GETCURSEL, 0, 0) + ID_POPUP_ECO;
+			settings.sections[L"General"][L"AdaptiveModeDC"] = _ts(current_dc_mode);
 
 			// update fan curves
 			wchar_t tmp_eco[256], tmp_balanced[256], tmp_turbo[256];
@@ -449,7 +496,7 @@ INT_PTR CALLBACK Settings(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 			bool tmp_startup = IsDlgButtonChecked(hDlg, IDC_CHECK_STARTUP);
 
 			// close dialog
-			EndDialog(hDlg, LOWORD(wParam));
+			if(LOWORD(wParam) == IDC_BUTTON_OK) EndDialog(hDlg, LOWORD(wParam));
 
 			if (tmp_startup != startup) {
 				startup = tmp_startup;
@@ -465,12 +512,18 @@ INT_PTR CALLBACK Settings(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
 			// write settings
 			write_settings(settings);
+			MessageBox(NULL, L"Settings applied successfully!", L"Success!", MB_ICONINFORMATION | MB_OK);
 
 			// update tray icon
 			UpdateTray(GetParent(hDlg), nid, asus_control, current_mode);
 
-			current_settings_hwnd = 0;
-			return (INT_PTR)TRUE;
+			if (LOWORD(wParam) == IDC_BUTTON_OK) {
+				current_settings_hwnd = 0;
+				return (INT_PTR)TRUE;
+			}
+			else {
+				break;
+			}
 		}
 		case IDC_BUTTON_CANCEL:
 		case IDCANCEL:
@@ -516,12 +569,36 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	// Load settings
 	read_settings(settings);
 	inipp::extract(settings.sections[L"General"][L"UpdateInterval"], update_interval);
-	inipp::extract(settings.sections[L"General"][L"CurrentMode"], current_mode);
+
 	int tmp_re = 0;
+	inipp::extract(settings.sections[L"General"][L"SmoothTempEnable"], tmp_re);
+	toggle_smooth_temp = tmp_re;
+
+	// Load settings (adaptive mode)
+	inipp::extract(settings.sections[L"General"][L"AdaptiveModeEnable"], tmp_re);
+	toggle_adaptive_mode = tmp_re;
+	
+	inipp::extract(settings.sections[L"General"][L"AdaptiveModeAC"], current_ac_mode);
+	inipp::extract(settings.sections[L"General"][L"AdaptiveModeDC"], current_dc_mode);
+
+	if (toggle_adaptive_mode) {
+		current_power_mode = asus_control.get_power_mode();
+		if (current_power_mode == PWRStatus::AC) current_mode = current_ac_mode;
+		else if (current_power_mode == PWRStatus::DC) current_mode = current_dc_mode;
+
+		settings.sections[L"General"][L"CurrentMode"] = _ts(current_mode);
+		write_settings(settings);
+	}
+	else {
+		inipp::extract(settings.sections[L"General"][L"CurrentMode"], current_mode);
+	}
+	
+	// Load settings (startup)
 	inipp::extract(settings.sections[L"General"][L"Startup"], tmp_re);
 	startup = tmp_re;
 	ChangeStartupBehavior(startup);
 
+	// Load settings (enable program)
 	inipp::extract(settings.sections[L"General"][L"Enable"], tmp_re);
 	toggle_change_fan_speed = tmp_re;
 	asus_control.set_fan_test_mode(tmp_re ? 0x01 : 0x00);
