@@ -7,6 +7,6 @@
 #include <queue>
 
 float calc_fan_percent(int mode);
-void update_average_temperature(ULONG temperature);
+void update_average_temperature(ULONG temperature, bool smooth_temp);
 bool validator(std::wstring& str);
 bool validator(wchar_t* str);

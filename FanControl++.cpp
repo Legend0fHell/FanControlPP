@@ -190,7 +190,7 @@ static BOOL MainThread(HWND hWnd) noexcept(false) {
 		}
 
 		int temp = asus_control.get_thermal();
-		update_average_temperature(temp);
+		update_average_temperature(temp, toggle_smooth_temp);
 
 		if (toggle_adaptive_mode) {
 			current_power_mode = asus_control.get_power_mode();
