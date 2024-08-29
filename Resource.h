@@ -21,8 +21,14 @@
 #define IDC_CHECK_STARTUP               1006
 #define IDC_BUTTON_CANCEL               1007
 #define IDC_BUTTON_OK                   1008
+#define IDC_CHECK_ADAPTIVEMODE          1009
+#define IDC_COMBO_AC_MODE               1010
+#define IDC_COMBO_DC_MODE               1011
+#define IDC_CHECK_ADAPTIVEMODE2         1012
+#define IDC_CHECK_SMOOTHTEMP            1012
 #define IDC_TEXT_INFO                   1013
 #define IDC_STATIC_INFO                 1013
+#define IDC_BUTTON_APPLY                1014
 #define ID_POPUP_ECO                    32772
 #define ID_POPUP_BALANCED               32773
 #define ID_POPUP_TURBO                  32774

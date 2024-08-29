@@ -75,14 +75,14 @@ std::queue<ULONG> temp_history;
 std::queue<ULONGLONG> temp_update_history;
 ULONG total_temp = 0;
 
-void update_average_temperature(ULONG temperature) {
+void update_average_temperature(ULONG temperature, bool smooth_temp) {
 	SYSTEMTIME st;
 	GetSystemTime(&st);
 
 	ULONGLONG current_time = convert_to_ull(st);
 
-	// only keep temperature in the last 8s
-	while (!temp_history.empty() && current_time - temp_update_history.front() > 8000) {
+	// only keep temperature in the last 8s, or none if smooth_temp is false
+	while (!temp_history.empty() && (!smooth_temp || current_time - temp_update_history.front() > 8000)) {
 		total_temp -= temp_history.front();
 		temp_history.pop();
 		temp_update_history.pop();
@@ -93,7 +93,7 @@ void update_average_temperature(ULONG temperature) {
 }
 
 float get_average_temperature() {
-	if (temp_history.empty()) return 0;
+	if (temp_history.empty()) return total_temp;
 	return (1.0f * total_temp) / temp_history.size();
 }
 
